@@ -1,5 +1,7 @@
 # Review Assistant
 
+## About
+
 Review Assistant is a Codex/OpenCode skill for literature-review workflows built around Zotero collections, local PDFs, and LLM-assisted synthesis.
 
 It helps you move from a folder of papers to structured notes, claim verification, review reports, narrative articles, summary tables, and follow-up literature searches. The tool is designed for research workflows where source grounding matters: it reads local PDFs, extracts evidence with citations, verifies quotes against source text, and flags logical or citation issues before producing final outputs.

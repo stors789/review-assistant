@@ -23,7 +23,7 @@ SS_API = "https://api.semanticscholar.org/graph/v1/paper/search"
 SS_KEY = os.environ.get("SS_API_KEY", "")
 SS_FIELDS = "title,authors,year,externalIds,journal,publicationDate,abstract,citationCount"
 
-_SS_LOCK_FILE = Path(tempfile.gettempdir()) / "auto_lit_ss_lock.txt"
+_SS_LOCK_FILE = Path.home() / ".auto_lit_ss_lock.txt"
 
 
 def _search(query: str, limit: int = 20) -> list[dict]:

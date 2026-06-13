@@ -330,9 +330,8 @@ def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: in
             if not content or not content.strip():
                 raise ValueError("API returned empty response")
             content = content.strip()
-            if content.startswith("```"):
-                lines = content.split("\n")
-                content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            content = re.sub(r'^```(?:json)?\s*', '', content)
+            content = re.sub(r'\s*```$', '', content)
             try:
                 return json.loads(content)
             except json.JSONDecodeError:
@@ -366,9 +365,8 @@ def call_json_light(client: OpenAI, system: str, user: str, model: str = "deepse
             if not content or not content.strip():
                 raise ValueError("API returned empty response")
             content = content.strip()
-            if content.startswith("```"):
-                lines = content.split("\n")
-                content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            content = re.sub(r'^```(?:json)?\s*', '', content)
+            content = re.sub(r'\s*```$', '', content)
             try:
                 return json.loads(content)
             except json.JSONDecodeError:

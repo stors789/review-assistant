@@ -19,6 +19,18 @@ class ZoteroReader:
 
     def __enter__(self):
         db_str = str(self.db_path)
+        # Try to connect directly in read-only mode first
+        try:
+            self._conn = sqlite3.connect(f"file:{db_str}?mode=ro", uri=True)
+            self._conn.execute("SELECT 1 FROM items LIMIT 1").fetchall()
+            self._tmp_path = None
+            return self
+        except sqlite3.Error:
+            if self._conn:
+                self._conn.close()
+                self._conn = None
+
+        # Fallback: copy the database to a temporary file
         with NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
             self._tmp_path = f.name
         shutil.copyfile(db_str, self._tmp_path)
@@ -38,11 +50,14 @@ class ZoteroReader:
             self._conn.close()
             self._conn = None
         if self._tmp_path:
-            os.unlink(self._tmp_path)
-            for ext in ("-wal", "-shm"):
-                p = self._tmp_path + ext
-                if os.path.exists(p):
-                    os.unlink(p)
+            try:
+                os.unlink(self._tmp_path)
+                for ext in ("-wal", "-shm"):
+                    p = self._tmp_path + ext
+                    if os.path.exists(p):
+                        os.unlink(p)
+            except OSError:
+                pass
             self._tmp_path = None
 
     def _query(self, sql: str, params=None):
