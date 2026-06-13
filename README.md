@@ -1,89 +1,222 @@
 # Review Assistant
 
-An [opencode](https://opencode.ai) skill for automated literature review — from searching to synthesis, all in one pipeline.
+Review Assistant is a Codex/OpenCode skill for literature-review workflows built around Zotero collections, local PDFs, and LLM-assisted synthesis.
 
-## What it does
+It helps you move from a folder of papers to structured notes, claim verification, review reports, narrative articles, summary tables, and follow-up literature searches. The tool is designed for research workflows where source grounding matters: it reads local PDFs, extracts evidence with citations, verifies quotes against source text, and flags logical or citation issues before producing final outputs.
 
-Given a Zotero collection and a research question, it:
+## What It Does
 
-1. Extracts relevant findings from every PDF (38→42/87 papers typically)
-2. Generates a structured outline based on discovered patterns
-3. Writes a full review report with inline citations and contradiction analysis
-4. Produces a narrative article, summary table, and Mermaid diagram
-5. Verifies citation accuracy and logical consistency
-6. Auto-fixes detected issues
+- Browse Zotero collections and check local PDF coverage.
+- Decompose PDFs into structured paper notes.
+- Verify claims in a paragraph against papers in a Zotero collection.
+- Explore a research question across a paper set and synthesize a report.
+- Generate a narrative review article, summary table, and Mermaid diagram.
+- Search Semantic Scholar for missing literature and generate RIS imports for Zotero.
+- Cache PDF text and extraction results so repeated runs do not waste API calls.
 
-When gaps are found (e.g., "no CBF data for healthy aging"), it searches Semantic Scholar, imports new papers into Zotero, and re-runs to fill them.
+## Core Workflows
 
-## Quick Start
+### 1. Inspect Zotero
+
+List all collections and PDF coverage:
 
 ```bash
-# 1. Set up
-source ~/Documents/api.env          # DeepSeek API key
-export SS_API_KEY="your-ss-key"     # Semantic Scholar API key (free)
-
-# 2. Explore a collection
 cd ~/.agents/skills/review-assistant
-python3 scripts/explore_synthesize.py "电波 > alpha" "电波 > alpha > 轻度认知障碍" \
-  -q "How does alpha EEG power couple with brain metabolism across populations?" \
-  -o ~/sciencing/synthesize_output
+python3 scripts/zotero_read.py --list
 ```
 
-## Capabilities
+Inspect one collection:
+
+```bash
+python3 scripts/zotero_read.py "Collection > Subcollection"
+python3 scripts/zotero_read.py --pdf-only "Collection > Subcollection"
+```
+
+### 2. Break Down Papers
+
+Create structured JSON notes and a CSV summary from PDFs in a Zotero collection:
+
+```bash
+source ~/Documents/api.env
+python3 scripts/paper_breakdown.py \
+  -z "Collection > Subcollection" \
+  -o ./paper_breakdown_output \
+  -w 5
+```
+
+You can also process a folder of PDFs:
+
+```bash
+python3 scripts/paper_breakdown.py \
+  -i /path/to/pdfs \
+  -o ./paper_breakdown_output
+```
+
+### 3. Verify Claims
+
+Check whether a paragraph is supported by papers in a Zotero collection:
+
+```bash
+source ~/Documents/api.env
+python3 scripts/claim_verify.py \
+  "Collection > Subcollection" \
+  -p "Your review paragraph..." \
+  -o claim_report.json
+```
+
+The report decomposes the paragraph into independent claims, matches each claim to relevant papers, and labels support strength.
+
+### 4. Explore And Synthesize
+
+Run the full review pipeline:
+
+```bash
+source ~/Documents/api.env
+python3 scripts/explore_synthesize.py \
+  "Collection > Subcollection" \
+  -q "What does this literature show about the research question?" \
+  -o ./synthesize_output
+```
+
+The pipeline extracts findings from every available PDF, builds an outline, writes a structured report, verifies citations and logic, applies fixes, then produces a narrative article plus table and diagram outputs.
+
+### 5. Search And Import Literature
+
+Search Semantic Scholar and generate an RIS file for Zotero import:
+
+```bash
+source ~/Documents/api.env
+python3 scripts/auto_lit.py \
+  "short English search query" \
+  -c "Target Zotero Collection" \
+  -t "topic-tag" \
+  -n 10
+```
+
+`auto_lit.py` uses DOI-based de-duplication against the local Zotero database when possible.
+
+## Scripts
 
 | Script | Purpose |
 |---|---|
-| `explore_synthesize.py` | Full pipeline: PDF extraction → outline → report → article → table → diagram |
-| `auto_lit.py` | Natural language → Semantic Scholar search → RIS import to Zotero |
-| `paper_breakdown.py` | Batch decompose PDF papers into structured JSON fields |
-| `claim_verify.py` | Verify claims in a paragraph against Zotero papers |
-| `zotero_read.py` | Browse Zotero collections and statistics |
-| `zotero_reader.py` | Programmatic Zotero SQLite queries |
+| `scripts/zotero_read.py` | Browse Zotero collections, item metadata, and PDF coverage. |
+| `scripts/zotero_reader.py` | Read-only Zotero SQLite helper used by other scripts. |
+| `scripts/paper_breakdown.py` | Batch PDF-to-structured-note extraction. |
+| `scripts/claim_verify.py` | Claim decomposition and source verification against a paper set. |
+| `scripts/explore_synthesize.py` | End-to-end research-question synthesis pipeline. |
+| `scripts/auto_lit.py` | Semantic Scholar search to RIS import workflow. |
 
-## Pipeline (7 steps + 3 verifications)
+## Full Synthesis Pipeline
 
+```text
+Step1 -> Ver1 -> Step2 -> Step3 -> Step4 -> Ver A/B -> Step6 -> Step5 -> Step7
+Extract  Quote   Outline  Match+Write  Integrate  Verify     Fix     Article  Table/Diagram
 ```
-Step1 ─→ Ver1 ─→ Step2 ─→ Step3 ─→ Step4 ─→ Ver A/B ─→ Step6 ─→ Step5 ─→ Step7
-Extract   Verify   Outline  Match+Write  Integrate  Citation+Logic  Fix  Article  Table+Diagram
-```
 
-**Step1** — Extract findings per paper (claim + quote + cite_key + dynamic tags)\
-**Ver1** — Verify quotes against source text (local string match)\
-**Step2** — LLM generates outline from all findings\
-**Step3** — Match findings to sections, write each section in parallel\
-**Step4** — Integrate into report, clean orphan references\
-**Ver A/B** — Citation accuracy + logical consistency checks\
-**Step6** — Auto-fix verified issues\
-**Step5** — Convert to narrative review article\
-**Step7** — Generate summary table (population × metric) and Mermaid diagram
+- **Step1:** Extract findings from each PDF as claims, quotes, citation keys, and dynamic tags.
+- **Ver1:** Verify extracted quotes with local string or fuzzy matching.
+- **Step2:** Generate a report outline from the extracted findings.
+- **Step3:** Match findings to outline sections and write sections in parallel.
+- **Step4:** Integrate sections into a structured report and remove orphan references.
+- **Ver A/B:** Check citation metadata and logical consistency.
+- **Step6:** Apply factual and logical fixes based on verification feedback.
+- **Step5:** Convert the structured report into a narrative article.
+- **Step7:** Generate a summary table and Mermaid diagram.
 
-## Output
+## Output Layout
 
-```
+Typical `explore_synthesize.py` output:
+
+```text
 synthesize_output/
 ├── report.md          # Structured review report
 ├── article.md         # Narrative article
-├── table.md           # Summary table (population × modality × coupling direction)
-├── diagram.md         # Mermaid flowchart (render with: mmdc --input diagram.md --output diagram.svg)
-├── verification.md    # Quality verification report
-├── outline.json       # Auto-generated outline
-├── findings/          # Per-paper finding JSONs (content hash + question + model + cache version)
-└── cache/             # PDF text cache (SHA256)
+├── table.md           # Summary table
+├── diagram.md         # Mermaid diagram
+├── verification.md    # Citation and logic verification
+├── outline.json       # Generated outline
+├── findings/          # Per-paper extracted findings
+└── cache/             # PDF text cache
 ```
 
-## Stability
+Typical `paper_breakdown.py` output:
 
-- **temperature=0** for all analytical steps (deterministic output)
-- **Dual-layer caching**: PDF text + API findings; same PDF content + question + model = instant reuse
-- **Multi-key rotation**: auto-detects `DEEPSEEK_API_KEY_2`, `_3`, etc.
-- **Orphan reference cleanup**: only papers actually cited in the body appear in the reference list
-- **Cross-process rate limiting**: file-locked 1.5s interval for Semantic Scholar API calls
+```text
+paper_breakdown_output/
+├── *.json             # One structured note per paper
+└── _summary.csv       # Combined paper summary table
+```
 
 ## Requirements
 
 - Python 3.10+
-- `pip install -r requirements.txt`
-- [Zotero](https://www.zotero.org/) with papers organized in collections
-- [DeepSeek](https://platform.deepseek.com/) API key
-- [Semantic Scholar](https://www.semanticscholar.org/product/api) API key (free, for `auto_lit.py`)
-- [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) (optional, for SVG rendering: `npm install -g @mermaid-js/mermaid-cli`)
+- Zotero with papers organized in collections
+- Local PDF attachments for full-text workflows
+- DeepSeek or OpenAI-compatible API key
+- Semantic Scholar API key for search/import workflows
+
+Install Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Load API keys before running API-backed workflows:
+
+```bash
+source ~/Documents/api.env
+```
+
+Expected environment variables:
+
+```bash
+DEEPSEEK_API_KEY=...
+SS_API_KEY=...
+```
+
+Optional:
+
+```bash
+DEEPSEEK_API_KEY_2=...
+DEEPSEEK_API_KEY_3=...
+```
+
+Additional DeepSeek keys are auto-detected by the synthesis pipeline for key rotation.
+
+## Design Notes
+
+- Zotero access is read-only: the scripts copy or read the SQLite database without requiring Zotero to close.
+- PDF coverage is checked against actual local files, not only Zotero attachment records.
+- Semantic Scholar requests are rate-limited with a cross-process lock.
+- PDF text and LLM findings are cached to make reruns cheaper and reproducible.
+- Analytical extraction uses deterministic model settings where practical.
+- The synthesis pipeline favors grounded findings over broad, unsupported narrative generation.
+
+## Limitations
+
+- The tools depend on the quality of PDF text extraction. Scanned or encrypted PDFs may need OCR or unlocking first.
+- RIS import into Zotero is semi-automatic and may require confirming the Zotero import dialog.
+- The local Zotero API does not support write requests, so truly silent local collection creation is not implemented.
+- Generated reports should still be reviewed by a human, especially for high-stakes or publishable work.
+
+## Troubleshooting
+
+- **`No module named ...`**: install dependencies with `pip install -r requirements.txt`.
+- **No PDFs found**: run `scripts/zotero_read.py --list` and confirm the collection path and PDF coverage.
+- **API key missing**: run `source ~/Documents/api.env` and confirm the key is exported.
+- **Semantic Scholar 429**: reduce search frequency or shorten the query.
+- **Poor PDF extraction**: OCR the PDF and rerun the workflow.
+
+## Repository Structure
+
+```text
+.
+├── SKILL.md                 # Codex/OpenCode skill instructions
+├── README.md                # User-facing project documentation
+├── ABOUT.md                 # Short project overview
+├── requirements.txt
+├── scripts/
+├── specs/
+├── tests/
+└── evals/
+```
