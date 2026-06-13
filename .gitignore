@@ -1,0 +1,16 @@
+api.env
+.env
+__pycache__/
+*.pyc
+cache/
+findings/
+alpha_metabolism_output/
+synthesize_output/
+output/
+*.ris
+*.svg
+*.png
+*.json
+!outline.json
+.DS_Store
+*.zip
