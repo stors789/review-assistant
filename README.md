@@ -67,14 +67,14 @@ synthesize_output/
 ├── diagram.md         # Mermaid flowchart (render with: mmdc --input diagram.md --output diagram.svg)
 ├── verification.md    # Quality verification report
 ├── outline.json       # Auto-generated outline
-├── findings/          # Per-paper finding JSONs (cached by paper+question hash)
+├── findings/          # Per-paper finding JSONs (content hash + question + model + cache version)
 └── cache/             # PDF text cache (SHA256)
 ```
 
 ## Stability
 
 - **temperature=0** for all analytical steps (deterministic output)
-- **Dual-layer caching**: PDF text + API findings; same paper + same question = instant reuse
+- **Dual-layer caching**: PDF text + API findings; same PDF content + question + model = instant reuse
 - **Multi-key rotation**: auto-detects `DEEPSEEK_API_KEY_2`, `_3`, etc.
 - **Orphan reference cleanup**: only papers actually cited in the body appear in the reference list
 - **Cross-process rate limiting**: file-locked 1.5s interval for Semantic Scholar API calls
@@ -82,7 +82,7 @@ synthesize_output/
 ## Requirements
 
 - Python 3.10+
-- `pip install pymupdf openai requests`
+- `pip install -r requirements.txt`
 - [Zotero](https://www.zotero.org/) with papers organized in collections
 - [DeepSeek](https://platform.deepseek.com/) API key
 - [Semantic Scholar](https://www.semanticscholar.org/product/api) API key (free, for `auto_lit.py`)

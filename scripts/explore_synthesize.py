@@ -33,6 +33,9 @@ import pymupdf
 from openai import OpenAI
 from zotero_reader import ZoteroReader
 
+FINDINGS_CACHE_VERSION = "2026-06-13-v2"
+OUTLINE_CACHE_VERSION = "2026-06-13-v1"
+
 
 # ── Prompts ────────────────────────────────────────────────────────────────
 
@@ -266,6 +269,47 @@ def extract_pdf_text(pdf_path: Path) -> str:
     return text
 
 
+def file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def findings_cache_key(pdf_path: Path, question: str, model: str) -> str:
+    payload = {
+        "cache_version": FINDINGS_CACHE_VERSION,
+        "pdf_sha256": file_sha256(pdf_path),
+        "question": question,
+        "model": model,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def chunk_text(text: str, max_chars: int = 10000) -> list[str]:
+    """Split text on paragraph boundaries so verification covers long reports."""
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks = []
+    current = []
+    current_len = 0
+    for para in text.split("\n\n"):
+        part_len = len(para) + 2
+        if current and current_len + part_len > max_chars:
+            chunks.append("\n\n".join(current))
+            current = [para]
+            current_len = part_len
+        else:
+            current.append(para)
+            current_len += part_len
+    if current:
+        chunks.append("\n\n".join(current))
+    return chunks
+
+
 def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: int = 4096, retries: int = 2) -> dict:
     """JSON 提取 —— 用 pro 思考模式，靠 prompt 约束格式 + 健壮解析。"""
     last_err = None
@@ -368,9 +412,11 @@ def call_text(client: OpenAI, prompt: str, model: str, max_tokens: int = 4096, r
 
 def step1_extract_single(client: OpenAI, pdf_path: Path, meta: dict, question: str, model: str,
                          text_cache_dir: Path, print_lock: threading.Lock,
-                         idx: int, total: int, findings_dir: Path = None) -> dict:
+                         idx: int, total: int, findings_dir: Path = None,
+                         force_refresh: bool = False) -> dict:
     stem = pdf_path.stem[:60]
-    cache_key = hashlib.sha256(str(pdf_path.resolve()).encode()).hexdigest()[:16]
+    pdf_hash = file_sha256(pdf_path)
+    cache_key = pdf_hash[:16]
 
     text_cache_path = text_cache_dir / f"{cache_key}.txt"
     if text_cache_path.exists():
@@ -393,10 +439,9 @@ def step1_extract_single(client: OpenAI, pdf_path: Path, meta: dict, question: s
     if len(text) > max_chars:
         text = text[:max_chars]
 
-    # 检查是否存在缓存的 findings（温度=0 保证确定性，缓存可安全复用）
-    fcache_key = hashlib.sha256((str(pdf_path.resolve()) + question).encode()).hexdigest()[:16]
+    fcache_key = findings_cache_key(pdf_path, question, model)
     fcache_path = findings_dir / f"{fcache_key}.json" if findings_dir else None
-    if fcache_path and fcache_path.exists():
+    if not force_refresh and fcache_path and fcache_path.exists():
         cached_result = json.loads(fcache_path.read_text(encoding="utf-8"))
         relevant = cached_result.get("relevant", False)
         findings = cached_result.get("findings", [])
@@ -435,16 +480,19 @@ def step1_extract_single(client: OpenAI, pdf_path: Path, meta: dict, question: s
 
     result = {"file": pdf_path.name, "relevant": relevant, "findings": findings,
             "ref_title": meta.get("title", ""), "ref_authors": meta.get("authors", ""),
-            "ref_year": meta.get("year", ""), "ref_num": meta.get("ref_num", 0)}
+            "ref_year": meta.get("year", ""), "ref_num": meta.get("ref_num", 0),
+            "cache": {
+                "version": FINDINGS_CACHE_VERSION,
+                "key": fcache_key,
+                "pdf_sha256": pdf_hash,
+                "question": question,
+                "model": model,
+            }}
 
-    if relevant and findings_dir:
+    if findings_dir:
         findings_dir.mkdir(parents=True, exist_ok=True)
-        # 用 (pdf_path + question) 的 hash 做缓存键，保证同一 PDF 不同问题时缓存隔离
         (findings_dir / f"{fcache_key}.json").write_text(
             json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-        # 同时保留旧格式文件名，兼容已有缓存
-        name = pdf_path.name.replace(".pdf", ".json").replace("/", "_")
-        (findings_dir / name).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return result
 
@@ -479,6 +527,38 @@ def step1_extract_all(client_factory, papers: list[dict], question: str, model: 
     relevant_count = sum(1 for r in results if r["relevant"])
     total_findings = sum(len(r.get("findings", [])) for r in results)
     print(f"\n  结果: {relevant_count}篇相关, {total - relevant_count}篇不相关, 共{total_findings}条发现\n", flush=True)
+    return results
+
+
+def load_cached_findings_for_papers(papers: list[dict], question: str, model: str,
+                                    findings_dir: Path) -> list[dict]:
+    """Load only exact cache entries for the current paper set/question/model."""
+    results = []
+    missing = []
+    for i, paper in enumerate(papers, 1):
+        pdf_path = Path(paper["pdf_path"])
+        key = findings_cache_key(pdf_path, question, model)
+        path = findings_dir / f"{key}.json"
+        if not path.exists():
+            missing.append(pdf_path.name)
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
+        cache_meta = data.get("cache", {})
+        if (
+            cache_meta.get("version") != FINDINGS_CACHE_VERSION
+            or cache_meta.get("question") != question
+            or cache_meta.get("model") != model
+            or cache_meta.get("pdf_sha256") != file_sha256(pdf_path)
+        ):
+            missing.append(pdf_path.name)
+            continue
+        data["ref_num"] = i
+        results.append(data)
+
+    if missing:
+        preview = ", ".join(missing[:5])
+        more = f" 等 {len(missing)} 篇" if len(missing) > 5 else ""
+        raise RuntimeError(f"缺少当前问题/模型对应的 findings 缓存: {preview}{more}")
     return results
 
 
@@ -573,6 +653,20 @@ def _fallback_outline(all_results: list[dict]) -> dict:
     return {"title": "报告", "sections": sections}
 
 
+def outline_cache_matches(meta_path: Path, question: str, model: str) -> bool:
+    if not meta_path.exists():
+        return False
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return (
+        meta.get("version") == OUTLINE_CACHE_VERSION
+        and meta.get("question") == question
+        and meta.get("model") == model
+    )
+
+
 # ── Step 3: 分节合成 ─────────────────────────────────────────────────────────
 
 def step3_match_and_write(client_factory, outline: dict, all_results: list[dict],
@@ -616,11 +710,24 @@ def step3_match_and_write(client_factory, outline: dict, all_results: list[dict]
         for f in all_findings
     )
 
+    def _normalize_indices(indices) -> list[int]:
+        seen = set()
+        clean = []
+        for raw in indices or []:
+            try:
+                idx = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= idx < len(all_findings) and idx not in seen:
+                clean.append(idx)
+                seen.add(idx)
+        return clean
+
     # ── Phase A: 逐节并行匹配 ──
     print(f"    匹配: {total_leaves} 节 × {len(all_findings)}条缩略（并行）", flush=True)
     leaf_matched = {}
 
-    def _match_leaf(leaf: dict) -> tuple[str, list[int]]:
+    def _match_leaf(pos: int, leaf: dict) -> tuple[int, str, list[int]]:
         client = client_factory()
         heading = leaf["heading"]
         search_tags = leaf.get("search_tags", {})
@@ -635,14 +742,15 @@ def step3_match_and_write(client_factory, outline: dict, all_results: list[dict]
         except Exception as e:
             print(f"    ⚠ {heading} 匹配失败: {e}，取前8条", flush=True)
             indices = list(range(min(8, len(all_findings))))
+        indices = _normalize_indices(indices)
         print(f"    {heading}: {len(indices)}条", flush=True)
-        return heading, indices
+        return pos, heading, indices
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(_match_leaf, leaf): leaf["heading"] for leaf in leaves}
+        futures = {executor.submit(_match_leaf, pos, leaf): leaf["heading"] for pos, leaf in enumerate(leaves)}
         for future in as_completed(futures):
-            heading, indices = future.result()
-            leaf_matched[heading] = indices
+            pos, heading, indices = future.result()
+            leaf_matched[pos] = indices
 
     # 覆盖率统计（不兜底，未匹配的发现直接丢弃）
     matched_set = set()
@@ -658,14 +766,14 @@ def step3_match_and_write(client_factory, outline: dict, all_results: list[dict]
     # ── Phase B: 逐节并行写作 ──
     print(f"    写作: {total_leaves} 节并行", flush=True)
 
-    def _write_leaf(leaf: dict) -> dict:
+    def _write_leaf(pos: int, leaf: dict) -> tuple[int, dict]:
         client = client_factory()
         heading = leaf["heading"]
-        indices = leaf_matched.get(heading, [])
+        indices = leaf_matched.get(pos, [])
         matched = [all_findings[i] for i in indices if i < len(all_findings)]
         if not matched:
             print(f"    {heading} -> 无发现", flush=True)
-            return {"heading": heading, "content": "_该节未匹配到相关发现。_"}
+            return pos, {"heading": heading, "content": "_该节未匹配到相关发现。_"}
 
         findings_text = "\n\n".join(
             f"**[ref:{f['ref_num']}] {f['cite_key']}**\n摘要: {f['claim_cn']}\n原文: \"{f['quote']}\""
@@ -678,16 +786,17 @@ def step3_match_and_write(client_factory, outline: dict, all_results: list[dict]
         except Exception as e:
             content = f"撰写失败: {e}"
         print(f"    {heading} -> 完成 ({len(matched)}条)", flush=True)
-        return {"heading": heading, "content": content}
+        return pos, {"heading": heading, "content": content}
 
-    sections_output = []
+    sections_output = [None] * total_leaves
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(_write_leaf, leaf): leaf["heading"] for leaf in leaves}
+        futures = {executor.submit(_write_leaf, pos, leaf): leaf["heading"] for pos, leaf in enumerate(leaves)}
         for future in as_completed(futures):
-            sections_output.append(future.result())
+            pos, section = future.result()
+            sections_output[pos] = section
 
     print(flush=True)
-    return sections_output, paper_refs
+    return [s for s in sections_output if s is not None], paper_refs
 
 
 def _collect_leaves(sections: list) -> list[dict]:
@@ -764,15 +873,12 @@ def step5_narrative(client: OpenAI, report: str, model: str) -> str:
     # 保留前 30k 字符正文 + 尾部参考文献（确保引用不丢失）
     max_body = 30000
     if len(report) > max_body:
-        # 找到参考文献分界线
         ref_marker = "\n## 参考文献\n"
         ref_idx = report.find(ref_marker)
-        if ref_idx > 0 and ref_idx < max_body:
-            # 参考文献在截断点之前，全部保留
-            report_text = report[:max_body] + report[ref_idx:]
-        elif ref_idx > 0:
-            # 参考文献在截断点之后，截取尾部
-            report_text = report[:max_body] + report[ref_idx:]
+        if ref_idx > 0:
+            body = report[:ref_idx]
+            refs = report[ref_idx:]
+            report_text = body[:max_body] + refs
         else:
             report_text = report[:max_body]
     else:
@@ -855,7 +961,7 @@ def step7_summary(client_factory, report: str) -> dict:
 # ── 验证模块 ────────────────────────────────────────────────────────────────
 
 def verify_findings(all_results: list[dict], papers: list[dict],
-                    client_factory, model: str,
+                    client_factory, extraction_model: str,
                     text_cache_dir: Path, findings_dir: Path,
                     question: str = "", print_lock: threading.Lock = None) -> list[dict]:
     """Ver 1: 用 quote 字符串直接检索原文。找不到则重提取（最多2轮）。"""
@@ -880,7 +986,7 @@ def verify_findings(all_results: list[dict], papers: list[dict],
         if not pdf_path:
             continue
 
-        cache_key = hashlib.sha256(str(pdf_path.resolve()).encode()).hexdigest()[:16]
+        cache_key = file_sha256(pdf_path)[:16]
         text_path = text_cache_dir / f"{cache_key}.txt"
         if not text_path.exists():
             continue
@@ -940,8 +1046,9 @@ def verify_findings(all_results: list[dict], papers: list[dict],
             meta = {"title": paper.get("ref_title", ""), "authors": paper.get("ref_authors", ""),
                     "year": paper.get("ref_year", ""), "ref_num": paper.get("ref_num", 0)}
             client = client_factory()
-            new = step1_extract_single(client, pdf_path, meta, question, model,
-                                       text_cache_dir, print_lock, i + 1, total, findings_dir)
+            new = step1_extract_single(client, pdf_path, meta, question, extraction_model,
+                                       text_cache_dir, print_lock, i + 1, total, findings_dir,
+                                       force_refresh=True)
             if new.get("relevant") and new.get("findings"):
                 all_results[i] = new
                 print(f"  ✅ 重提取成功: {file[:40]}...", flush=True)
@@ -970,16 +1077,18 @@ def verify_citations(report_text: str, all_results: list[dict], client, model: s
             )
     findings_index = "\n".join(idx_lines)
 
-    if len(report_text) > 12000:
-        report_text = report_text[:12000]
-
-    try:
-        result = call_json(client, "", VERIFY_CITATION_PROMPT.format(
-            report=report_text, findings_index=findings_index), model, 65536)
-    except Exception as e:
-        return f"⚠ 引用验证失败: {e}"
-
-    issues = result if isinstance(result, list) else [result]
+    issues = []
+    for chunk_no, chunk in enumerate(chunk_text(report_text, 10000), 1):
+        try:
+            result = call_json(client, "", VERIFY_CITATION_PROMPT.format(
+                report=f"【报告片段 {chunk_no}】\n{chunk}", findings_index=findings_index), model, 65536)
+        except Exception as e:
+            return f"⚠ 引用验证失败: {e}"
+        chunk_issues = result if isinstance(result, list) else [result]
+        for iss in chunk_issues:
+            if isinstance(iss, dict):
+                iss.setdefault("chunk", chunk_no)
+                issues.append(iss)
     if not issues:
         print(f"  ✅ 引用无问题", flush=True)
         return ""
@@ -997,15 +1106,18 @@ def verify_logic(report_text: str, client, model: str) -> str:
     """Ver B: 验证逻辑一致性。"""
     print(f"\n── Ver B: 逻辑一致性 ──", flush=True)
 
-    if len(report_text) > 12000:
-        report_text = report_text[:12000]
-
-    try:
-        result = call_json(client, "", VERIFY_LOGIC_PROMPT.format(report=report_text), model, 65536)
-    except Exception as e:
-        return f"⚠ 逻辑验证失败: {e}"
-
-    issues = result if isinstance(result, list) else [result]
+    issues = []
+    for chunk_no, chunk in enumerate(chunk_text(report_text, 10000), 1):
+        try:
+            result = call_json(client, "", VERIFY_LOGIC_PROMPT.format(
+                report=f"【报告片段 {chunk_no}】\n{chunk}"), model, 65536)
+        except Exception as e:
+            return f"⚠ 逻辑验证失败: {e}"
+        chunk_issues = result if isinstance(result, list) else [result]
+        for iss in chunk_issues:
+            if isinstance(iss, dict):
+                iss.setdefault("chunk", chunk_no)
+                issues.append(iss)
     if not issues:
         print(f"  ✅ 逻辑无问题", flush=True)
         return ""
@@ -1060,7 +1172,7 @@ def main():
     )
     parser.add_argument("collection", nargs="+", help="Zotero 论文集路径（如 '电波 > alpha'，可多个）")
     parser.add_argument("--question", "-q", required=True, help="研究问题")
-    parser.add_argument("--output", "-o", default="/Users/eros/sciencing/synthesize_output", help="输出目录")
+    parser.add_argument("--output", "-o", default="synthesize_output", help="输出目录")
     parser.add_argument("--model", "-m", default="deepseek-v4-pro", help="模型名")
     parser.add_argument("--workers", "-w", type=int, default=5, help="并发数")
     parser.add_argument("--cache-dir", help="文本缓存目录（默认 output/cache）")
@@ -1127,20 +1239,14 @@ def main():
     findings_dir = output_dir / "findings"
     if args.skip_step1:
         print(f"\n── Step 1: 从缓存加载 ──", flush=True)
-        all_results = []
-        if findings_dir.exists():
-            for f in sorted(findings_dir.glob("*.json")):
-                data = json.loads(f.read_text(encoding="utf-8"))
-                data["relevant"] = True
-                all_results.append(data)
-        title_to_ref = {p["title"]: i + 1 for i, p in enumerate(papers)}
-        for r in all_results:
-            new_num = title_to_ref.get(r.get("ref_title", ""), 0)
-            if new_num:
-                r["ref_num"] = new_num
-        print(f"   加载 {len(all_results)} 篇 findings", flush=True)
-        if not all_results:
+        if not findings_dir.exists():
             sys.exit("无缓存 findings，请先完整跑一次")
+        try:
+            all_results = load_cached_findings_for_papers(papers, args.question, args.model, findings_dir)
+        except RuntimeError as e:
+            sys.exit(str(e))
+        relevant_loaded = sum(1 for r in all_results if r.get("relevant"))
+        print(f"   加载 {len(all_results)} 篇 findings，其中 {relevant_loaded} 篇相关", flush=True)
     else:
         findings_dir.mkdir(parents=True, exist_ok=True)
         all_results = step1_extract_all(client_factory, papers, args.question,
@@ -1153,15 +1259,16 @@ def main():
 
     # ── Ver 1: 验证发现 ──
     if not args.skip_verify:
-        # Ver 1 用 flash 做校验（快 + 便宜），重提取用 pro
+        # Ver 1 本地字符串校验；失败时用主模型强制重提取。
         all_results = verify_findings(all_results, papers, client_factory,
-                                       "deepseek-v4-flash",
+                                       args.model,
                                        cache_dir, findings_dir,
                                        args.question)
 
     # ── Step 2 ──
     outline_path = output_dir / "outline.json"
-    if outline_path.exists():
+    outline_meta_path = output_dir / "outline.meta.json"
+    if outline_path.exists() and outline_cache_matches(outline_meta_path, args.question, args.model):
         print(f"── Step 2: 加载缓存大纲 ──", flush=True)
         outline = json.loads(outline_path.read_text(encoding="utf-8"))
         print(f"  📋 {outline.get('title', '报告')}", flush=True)
@@ -1170,6 +1277,11 @@ def main():
     else:
         outline = step2_generate_outline(client, all_results, args.question, args.model)
         outline_path.write_text(json.dumps(outline, ensure_ascii=False, indent=2), encoding="utf-8")
+        outline_meta_path.write_text(json.dumps({
+            "version": OUTLINE_CACHE_VERSION,
+            "question": args.question,
+            "model": args.model,
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # ── Step 3 ──
     sections, paper_refs = step3_match_and_write(client_factory, outline, all_results, args.question, args.model, args.workers)
@@ -1227,17 +1339,13 @@ def main():
         diagram_path.write_text(summary["diagram"], encoding="utf-8")
         print(f"  📄 示意图已保存: {diagram_path}", flush=True)
 
-    # ── 保存中间产物 ──
-    findings_dir = output_dir / "findings"
-    findings_dir.mkdir(exist_ok=True)
-    for r in all_results:
-        if r["relevant"]:
-            name = r["file"].replace(".pdf", ".json").replace("/", "_")
-            json.dump(r, (findings_dir / name).open("w", encoding="utf-8"),
-                      ensure_ascii=False, indent=2)
-
     (output_dir / "outline.json").write_text(
         json.dumps(outline, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output_dir / "outline.meta.json").write_text(json.dumps({
+        "version": OUTLINE_CACHE_VERSION,
+        "question": args.question,
+        "model": args.model,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"\n{'='*60}")
     print(f"全部完成！")

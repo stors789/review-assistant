@@ -6,7 +6,7 @@ auto_lit: 自然语言 → Semantic Scholar 搜索 → 生成 RIS 文件供 Zote
 """
 
 import argparse
-import json
+import fcntl
 import os
 import subprocess
 import sys
@@ -22,13 +22,8 @@ from zotero_reader import ZoteroReader
 SS_API = "https://api.semanticscholar.org/graph/v1/paper/search"
 SS_KEY = os.environ.get("SS_API_KEY", "")
 SS_FIELDS = "title,authors,year,externalIds,journal,publicationDate,abstract,citationCount"
-ZOTERO_IMPORT = "http://localhost:23119/connector/import"
-OA_API = "https://api.openalex.org/works"
 
-# SS 限流：文件锁，跨进程共享
-import tempfile
 _SS_LOCK_FILE = Path(tempfile.gettempdir()) / "auto_lit_ss_lock.txt"
-ZOTERO_IMPORT = "http://localhost:23119/connector/import"
 
 
 def _search(query: str, limit: int = 20) -> list[dict]:
@@ -42,15 +37,21 @@ def _search(query: str, limit: int = 20) -> list[dict]:
 
 def _search_ss(query: str, limit: int = 20) -> list[dict]:
     # 文件锁限流：确保两次 API 调用间隔 ≥ 1.5 秒，跨进程生效
-    now = time.time()
-    try:
-        last = float(_SS_LOCK_FILE.read_text().strip() or 0)
-    except Exception:
-        last = 0
-    gap = 1.5 - (now - last)
-    if gap > 0:
-        time.sleep(gap)
-    _SS_LOCK_FILE.write_text(str(time.time()))
+    _SS_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with _SS_LOCK_FILE.open("a+", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        lock.seek(0)
+        try:
+            last = float((lock.read().strip() or "0"))
+        except ValueError:
+            last = 0
+        gap = 1.5 - (time.time() - last)
+        if gap > 0:
+            time.sleep(gap)
+        lock.seek(0)
+        lock.truncate()
+        lock.write(str(time.time()))
+        lock.flush()
 
     url = f"{SS_API}?query={quote(query)}&limit={limit}&fields={quote(SS_FIELDS)}"
     try:
@@ -61,55 +62,6 @@ def _search_ss(query: str, limit: int = 20) -> list[dict]:
     except Exception as e:
         print(f"  ⚠ SS: {e}", flush=True)
         return []
-
-
-def _search_oa(query: str, limit: int = 20) -> list[dict]:
-    """OpenAlex 搜索，返回与 _search_ss 兼容的格式。"""
-    # OpenAlex 用 + 连接词
-    q = quote(query.replace(" ", "+"))
-    url = f"{OA_API}?search={q}&per_page={limit}&filter=type:article"
-    try:
-        r = requests.get(url, timeout=15)
-        r.raise_for_status()
-        results = r.json().get("results", [])
-        papers = []
-        for w in results:
-            doi = w.get("doi", "").replace("https://doi.org/", "")
-            authors = []
-            for a in w.get("authorships", []):
-                name = a.get("author", {}).get("display_name", "")
-                if name:
-                    authors.append({"name": name})
-            journal = w.get("primary_location", {}).get("source", {}) or {}
-            papers.append({
-                "title": w.get("title", ""),
-                "year": w.get("publication_year"),
-                "authors": authors,
-                "externalIds": {"DOI": doi},
-                "journal": {
-                    "name": journal.get("display_name", ""),
-                    "volume": w.get("biblio", {}).get("volume", ""),
-                    "pages": f"{w.get('biblio', {}).get('first_page', '')}-{w.get('biblio', {}).get('last_page', '')}",
-                } if journal else {},
-                "abstract": _clean_abstract(w.get("abstract_inverted_index", {})),
-            })
-        return papers
-    except Exception as e:
-        print(f"  ❌ OpenAlex 搜索失败: {e}", flush=True)
-        return []
-
-
-def _clean_abstract(inverted: dict) -> str:
-    """OpenAlex 倒排索引转纯文本（仅取前 500 词）。"""
-    if not inverted:
-        return ""
-    max_pos = min(max((pos for positions in inverted.values() for pos in positions), default=0), 500)
-    words = [""] * (max_pos + 2)
-    for word, positions in inverted.items():
-        for pos in positions:
-            if pos <= max_pos:
-                words[pos] = word
-    return " ".join(w for w in words if w)
 
 
 def _get_existing_dois() -> set[str]:
@@ -146,10 +98,7 @@ def _to_ris(paper: dict, idx: int, tag: str = "") -> str:
         lines.append(f"TI  - {title}")
     for a in paper.get("authors", []):
         name = a.get("name", "")
-        parts = name.split()
-        if len(parts) >= 2:
-            lines.append(f"AU  - {parts[-1]}, {parts[0]}")
-        elif name:
+        if name:
             lines.append(f"AU  - {name}")
     if year:
         lines.append(f"PY  - {year}")

@@ -9,7 +9,6 @@ import csv
 import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pymupdf
 from openai import OpenAI
@@ -152,7 +151,7 @@ def main():
     parser.add_argument("--zotero-collection", "-z", help="Zotero 论文集名称（可与 --input 同时用）")
     parser.add_argument("--list-collections", action="store_true", help="列出所有 Zotero 论文集")
     parser.add_argument("--list-papers", help="列出指定 Zotero 论文集的全部文献及 PDF 状态")
-    parser.add_argument("--output", "-o", default="/Users/eros/sciencing/output", help="输出文件夹")
+    parser.add_argument("--output", "-o", default="output", help="输出文件夹")
     parser.add_argument("--model", "-m", default="deepseek-v4-flash", help="模型名（默认 deepseek-v4-flash）")
     parser.add_argument("--api-key", "-k", help="DeepSeek API Key（或用 DEEPSEEK_API_KEY 环境变量）")
     parser.add_argument("--base-url", default="https://api.deepseek.com", help="API Base URL")
