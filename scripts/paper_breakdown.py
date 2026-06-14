@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import pymupdf
+from utils import extract_text
 from openai import OpenAI
 
 FIELDS = {
@@ -52,16 +52,7 @@ SYSTEM_PROMPT = """你是一位资深学术论文审稿人。请仔细阅读以�
 4. 严格使用以上 JSON 结构，不要新增或删减字段"""
 
 
-def extract_text(pdf_path: Path) -> str:
-    """从 PDF 提取全文文本。"""
-    doc = pymupdf.open(str(pdf_path))
-    pages = []
-    for page in doc:
-        text = page.get_text()
-        if text.strip():
-            pages.append(text)
-    doc.close()
-    return "\n\n".join(pages)
+# extract_text is now imported from utils
 
 
 def breakdown_paper(client: OpenAI, text: str, model: str) -> dict:
@@ -138,7 +129,10 @@ def process_pdfs(pdf_paths: list[Path], output_dir: Path, model: str, api_key: s
         writer = csv.DictWriter(f, fieldnames=["file"] + list(FIELDS.keys()))
         writer.writeheader()
         for r in all_results:
-            writer.writerow(r)
+            row = {k: v for k, v in r.items() if k in writer.fieldnames}
+            for k in writer.fieldnames:
+                row.setdefault(k, "")
+            writer.writerow(row)
 
     print(f"\n全部完成！{total} 篇论文 -> {output_dir}")
     print(f"  JSON: {output_dir}/*.json")

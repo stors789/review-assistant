@@ -17,8 +17,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import pymupdf
-from openai import OpenAI
+import llm_client
+from utils import extract_text
 from zotero_reader import ZoteroReader
 
 CLAIM_DECOMPOSE_PROMPT = """你是一位严谨的学术编辑。请将以下段落拆解为若干独立且可验证的学术主张，每一条是一个完整的陈述句。
@@ -77,39 +77,11 @@ SUMMARY_PROMPT = """你是学术审稿人。基于以下逐条验证结果，生
 ## 5. 改进建议"""
 
 
-def extract_text(pdf_path: Path) -> str:
-    doc = pymupdf.open(str(pdf_path))
-    pages = [page.get_text() for page in doc if page.get_text().strip()]
-    doc.close()
-    return "\n\n".join(pages)
+# De-duplicated extract_text, call_json, and call_text (imported from utils and llm_client)
 
 
-def call_json(client: OpenAI, prompt: str, model: str, max_tokens=4096) -> dict:
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "你是一个输出 JSON 的助手。"},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.2,
-        max_tokens=max_tokens,
-        response_format={"type": "json_object"},
-    )
-    return json.loads(resp.choices[0].message.content)
-
-
-def call_text(client: OpenAI, prompt: str, model: str, max_tokens=4096) -> str:
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=max_tokens,
-    )
-    return resp.choices[0].message.content
-
-
-def decompose_claims(client: OpenAI, paragraph: str, model: str) -> list[str]:
-    result = call_json(client, CLAIM_DECOMPOSE_PROMPT + "\n\n段落：\n" + paragraph, model, 2048)
+def decompose_claims(client, paragraph: str, model: str) -> list[str]:
+    result = llm_client.call_json(client, "你是一个输出 JSON 的助手。", CLAIM_DECOMPOSE_PROMPT + "\n\n段落：\n" + paragraph, model, 2048)
     return result.get("claims", [])
 
 
@@ -120,7 +92,7 @@ def match_papers(client, claim, papers, model, top_k):
     )
     prompt = MATCH_PAPERS_PROMPT.format(claim=claim, candidates=candidates, top=top_k)
     try:
-        result = call_json(client, prompt, model, 1024)
+        result = llm_client.call_json(client, "你是一个输出 JSON 的助手。", prompt, model, 1024)
         return result.get("relevant_indices", [])
     except Exception:
         return list(range(min(top_k, len(papers))))  # fallback: first N
@@ -132,7 +104,7 @@ def verify_claim(client, claim, paper, model):
         claim=claim,
         paper_ref=paper_ref + "\n\n全文：\n" + paper["text"][:25000],
     )
-    return call_json(client, prompt, model, 2048)
+    return llm_client.call_json(client, "你是一个输出 JSON 的助手。", prompt, model, 2048)
 
 
 def main():
@@ -220,7 +192,7 @@ def main():
 
     # ── Step 5: 生成总结 ──
     print(f"\n📊 生成总结...", flush=True)
-    summary = call_text(client, SUMMARY_PROMPT.format(data=json.dumps(report, ensure_ascii=False)[:12000]), args.model, 4096)
+    summary = llm_client.call_text(client, SUMMARY_PROMPT.format(data=json.dumps(report, ensure_ascii=False)[:12000]), args.model, 4096)
 
     if args.output:
         report["summary"] = summary

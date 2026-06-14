@@ -6,7 +6,15 @@ auto_lit: 自然语言 → Semantic Scholar 搜索 → 生成 RIS 文件供 Zote
 """
 
 import argparse
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 import os
 import re
 import subprocess
@@ -23,8 +31,13 @@ SS_API = "https://api.semanticscholar.org/graph/v1/paper/search"
 SS_KEY = os.environ.get("SS_API_KEY", "")
 SS_FIELDS = "title,authors,year,externalIds,journal,publicationDate,abstract,citationCount"
 
+PUBMED_SEARCH_API = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+PUBMED_FETCH_API = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+PUBMED_KEY = os.environ.get("PUBMED_API_KEY", "") or os.environ.get("NCBI_API_KEY", "")
+
+from datetime import datetime
 _SS_LOCK_FILE = Path.home() / ".auto_lit_ss_lock.txt"
-CURRENT_YEAR = 2026
+CURRENT_YEAR = datetime.now().year
 
 CORE_TERMS = {
     "theta", "theta-band", "theta band", "theta power", "theta rhythm", "theta rhythms",
@@ -55,8 +68,11 @@ EXCLUSION_TERMS = {
 }
 
 
-def _search(query: str, limit: int = 20) -> list[dict]:
-    """搜索文献：仅用 SS。失败直接报错，不回退 OpenAlex。"""
+def _search(query: str, source: str = "ss", limit: int = 20) -> list[dict]:
+    """搜索文献。支持 Semantic Scholar (ss) 和 PubMed (pubmed)。"""
+    if source == "pubmed":
+        return _search_pubmed(query, limit)
+    
     papers = _search_ss(query, limit)
     if not papers:
         print("  ❌ SS 搜索失败，终止（未切换 OpenAlex）", flush=True)
@@ -64,23 +80,172 @@ def _search(query: str, limit: int = 20) -> list[dict]:
     return papers
 
 
+def _search_pubmed(query: str, limit: int = 20) -> list[dict]:
+    """从 PubMed 搜索文献并获取详细信息。"""
+    import xml.etree.ElementTree as ET
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/120.0.0.0",
+    }
+    if PUBMED_KEY:
+        headers["NCBI-API-Key"] = PUBMED_KEY
+        
+    # Rate limit: with API key we can do 10 req/sec (0.1s delay is safe, we use 0.2s).
+    # Without key, limit is 3 req/sec (we use 1.5s delay).
+    delay = 0.2 if PUBMED_KEY else 1.5
+    
+    # 1. Search PMIDs
+    print("  🔍 正在从 PubMed 搜索 PMIDs...", flush=True)
+    params = {
+        "db": "pubmed",
+        "term": query,
+        "retmode": "json",
+        "retmax": limit
+    }
+    try:
+        r = requests.get(PUBMED_SEARCH_API, params=params, headers=headers, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"  ❌ PubMed Search API 请求失败: {e}", flush=True)
+        return []
+        
+    id_list = data.get("esearchresult", {}).get("idlist", [])
+    if not id_list:
+        print("  ⚠ 未在 PubMed 中找到匹配的 PMIDs", flush=True)
+        return []
+        
+    print(f"  🔍 找到 {len(id_list)} 个 PMIDs，正在获取详细数据 (限流中, 延迟={delay}s)...", flush=True)
+    
+    # 2. Rate limit
+    time.sleep(delay)
+    
+    # 3. Fetch Details
+    fetch_params = {
+        "db": "pubmed",
+        "id": ",".join(id_list),
+        "retmode": "xml"
+    }
+    try:
+        r_fetch = requests.get(PUBMED_FETCH_API, params=fetch_params, headers=headers, timeout=20)
+        r_fetch.raise_for_status()
+    except Exception as e:
+        print(f"  ❌ PubMed Fetch API (XML) 请求失败: {e}", flush=True)
+        return []
+        
+    # 4. Parse XML
+    papers = []
+    try:
+        root = ET.fromstring(r_fetch.content)
+        for article in root.findall(".//PubmedArticle"):
+            try:
+                # PMID
+                pmid_el = article.find(".//MedlineCitation/PMID")
+                pmid = pmid_el.text if pmid_el is not None else ""
+                
+                # Title
+                title_el = article.find(".//ArticleTitle")
+                title = "".join(title_el.itertext()).strip() if title_el is not None else ""
+                
+                # Authors
+                authors = []
+                for author in article.findall(".//AuthorList/Author"):
+                    last = author.find("LastName")
+                    fore = author.find("ForeName")
+                    col = author.find("CollectiveName")
+                    if last is not None and fore is not None:
+                        authors.append(f"{last.text} {fore.text}")
+                    elif col is not None:
+                        authors.append(col.text)
+                    elif last is not None:
+                        authors.append(last.text)
+                        
+                # Journal
+                j_title_el = article.find(".//Journal/Title")
+                if j_title_el is None or not j_title_el.text:
+                    j_title_el = article.find(".//Journal/ISOAbbreviation")
+                j_title = j_title_el.text if j_title_el is not None else "Unknown Journal"
+                
+                # Date / Year
+                year = ""
+                year_el = article.find(".//JournalIssue/PubDate/Year")
+                if year_el is not None and year_el.text:
+                    year = year_el.text
+                else:
+                    medline_date = article.find(".//JournalIssue/PubDate/MedlineDate")
+                    if medline_date is not None and medline_date.text:
+                        year = medline_date.text.split()[0]
+                try:
+                    year = int(year)
+                except (TypeError, ValueError):
+                    year = None
+                    
+                # DOI
+                doi = ""
+                for article_id in article.findall(".//ArticleIdList/ArticleId"):
+                    if article_id.attrib.get("IdType") == "doi":
+                        doi = article_id.text
+                        break
+                        
+                # Abstract
+                abstract_texts = []
+                for abs_text in article.findall(".//Abstract/AbstractText"):
+                    label = abs_text.attrib.get("Label")
+                    text = "".join(abs_text.itertext()).strip()
+                    if label:
+                        abstract_texts.append(f"{label}: {text}")
+                    else:
+                        abstract_texts.append(text)
+                abstract = "\n".join(abstract_texts)
+                
+                # Build uniform dict
+                papers.append({
+                    "title": title,
+                    "authors": [{"name": a} for a in authors],
+                    "year": year,
+                    "externalIds": {"DOI": doi or f"PMID:{pmid}"},
+                    "journal": {"name": j_title},
+                    "abstract": abstract,
+                    "citationCount": 0
+                })
+            except Exception as item_err:
+                print(f"  ⚠ 解析单篇文献 XML 失败，跳过: {item_err}", flush=True)
+    except Exception as e:
+        print(f"  ❌ 解析 PubMed XML 失败: {e}", flush=True)
+        return []
+        
+    return papers
+
+
 def _search_ss(query: str, limit: int = 20) -> list[dict]:
     # 文件锁限流：确保两次 API 调用间隔 ≥ 1.5 秒，跨进程生效
     _SS_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     with _SS_LOCK_FILE.open("a+", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        lock.seek(0)
+        if fcntl:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        elif msvcrt:
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+
         try:
-            last = float((lock.read().strip() or "0"))
-        except ValueError:
-            last = 0
-        gap = 1.5 - (time.time() - last)
-        if gap > 0:
-            time.sleep(gap)
-        lock.seek(0)
-        lock.truncate()
-        lock.write(str(time.time()))
-        lock.flush()
+            lock.seek(0)
+            try:
+                last = float((lock.read().strip() or "0"))
+            except ValueError:
+                last = 0
+            gap = 1.5 - (time.time() - last)
+            if gap > 0:
+                time.sleep(gap)
+            lock.seek(0)
+            lock.truncate()
+            lock.write(str(time.time()))
+            lock.flush()
+        finally:
+            if fcntl:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            elif msvcrt:
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
     url = f"{SS_API}?query={quote(query)}&limit={limit}&fields={quote(SS_FIELDS)}"
     try:
@@ -217,7 +382,7 @@ def _screen_tag(base_tag: str, screen: dict) -> str:
 
 
 def _to_ris(paper: dict, idx: int, tag: str = "") -> str:
-    """将 SS 论文转为 RIS 条目。"""
+    """将 SS/PubMed 论文转为 RIS 条目。"""
     ext = paper.get("externalIds", {})
     doi = ext.get("DOI", "")
     title = paper.get("title", "")
@@ -240,7 +405,7 @@ def _to_ris(paper: dict, idx: int, tag: str = "") -> str:
     if year:
         lines.append(f"PY  - {year}")
         lines.append(f"DA  - {year}//")
-    if doi:
+    if doi and not doi.startswith("PMID:"):
         lines.append(f"DO  - {doi}")
         lines.append(f"UR  - https://doi.org/{doi}")
     if jname:
@@ -261,6 +426,9 @@ def _to_ris(paper: dict, idx: int, tag: str = "") -> str:
 
 def _try_import_ris(ris_path: str) -> bool:
     """用 `open -a Zotero` 触发导入，会弹出导入对话框。"""
+    import sys
+    if sys.platform != "darwin":
+        return False
     try:
         subprocess.run(["open", "-a", "Zotero", ris_path], check=True, timeout=5)
         print(f"  ✅ 已发送到 Zotero（在导入对话框中确认）", flush=True)
@@ -277,14 +445,15 @@ def main():
     parser.add_argument("-m", "--min-citations", type=int, default=0, help="最低引用数（0=不过滤）")
     parser.add_argument("-c", "--collection", default="", help="目标 Zotero 集（提示用）")
     parser.add_argument("-t", "--tag", default="", help="导入后给条目添加的 Zotero 标签")
+    parser.add_argument("-s", "--source", choices=["ss", "pubmed"], default="ss", help="文献检索源，支持 ss (Semantic Scholar) 或 pubmed (PubMed)")
     parser.add_argument("--screen", action="store_true", help="按标题/摘要做年份感知相关性筛选")
     parser.add_argument("--min-relevance", type=int, default=4, help="--screen 模式下最低相关性分数")
     args = parser.parse_args()
 
-    output = Path(args.output) if args.output else Path(f"ss_{args.tag or uuid.uuid4().hex[:8]}.ris")
+    output = Path(args.output) if args.output else Path(f"lit_{args.tag or uuid.uuid4().hex[:8]}.ris")
 
-    print(f"🔍 搜索: \"{args.keywords}\"", flush=True)
-    papers = _search(args.keywords, args.limit)
+    print(f"🔍 搜索 ({args.source}): \"{args.keywords}\"", flush=True)
+    papers = _search(args.keywords, args.source, args.limit)
     if not papers:
         print("❌ 未找到匹配文献", flush=True)
         return

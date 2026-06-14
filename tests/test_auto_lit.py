@@ -70,6 +70,154 @@ class AutoLitScreenTests(unittest.TestCase):
         self.assertIn("KW  - screen:A", ris)
         self.assertIn("KW  - score:7", ris)
 
+    def test_search_source_dispatch(self):
+        # Test that _search dispatches to _search_pubmed when source is pubmed
+        original_ss = auto_lit._search_ss
+        original_pubmed = auto_lit._search_pubmed
+        try:
+            auto_lit._search_ss = lambda q, l: [{"title": "SS paper"}]
+            auto_lit._search_pubmed = lambda q, l: [{"title": "PubMed paper"}]
+            
+            res_ss = auto_lit._search("query", "ss", 5)
+            self.assertEqual(res_ss[0]["title"], "SS paper")
+            
+            res_pubmed = auto_lit._search("query", "pubmed", 5)
+            self.assertEqual(res_pubmed[0]["title"], "PubMed paper")
+        finally:
+            auto_lit._search_ss = original_ss
+            auto_lit._search_pubmed = original_pubmed
+
+    def test_search_pubmed_xml_parsing(self):
+        import requests
+        from unittest.mock import patch, MagicMock
+        
+        # Mock search response
+        mock_search_json = {
+            "esearchresult": {
+                "idlist": ["12345"]
+            }
+        }
+        
+        # Mock XML fetch response
+        mock_xml = """<PubmedArticleSet>
+            <PubmedArticle>
+                <MedlineCitation>
+                    <PMID>12345</PMID>
+                    <Article>
+                        <ArticleTitle>Mocked PubMed Article Title</ArticleTitle>
+                        <AuthorList>
+                            <Author>
+                                <LastName>Doe</LastName>
+                                <ForeName>John</ForeName>
+                            </Author>
+                        </AuthorList>
+                        <Journal>
+                            <Title>Journal of Testing</Title>
+                        </Journal>
+                        <JournalIssue>
+                            <PubDate>
+                                <Year>2025</Year>
+                            </PubDate>
+                        </JournalIssue>
+                        <Abstract>
+                            <AbstractText Label="OBJECTIVE">To test XML parsing.</AbstractText>
+                        </Abstract>
+                    </Article>
+                </MedlineCitation>
+                <PubmedData>
+                    <ArticleIdList>
+                        <ArticleId IdType="doi">10.1234/mock.doi</ArticleId>
+                    </ArticleIdList>
+                </PubmedData>
+            </PubmedArticle>
+        </PubmedArticleSet>"""
+        
+        original_get = requests.get
+        try:
+            # We mock requests.get to return search json, then xml content
+            mock_responses = [
+                MagicMock(status_code=200, json=lambda: mock_search_json, raise_for_status=lambda: None),
+                MagicMock(status_code=200, content=mock_xml.encode('utf-8'), raise_for_status=lambda: None)
+            ]
+            
+            call_count = 0
+            def mock_get(*args, **kwargs):
+                nonlocal call_count
+                res = mock_responses[call_count]
+                call_count += 1
+                return res
+                
+            requests.get = mock_get
+            
+            # Disable rate limit sleep to speed up test
+            original_sleep = auto_lit.time.sleep
+            auto_lit.time.sleep = lambda s: None
+            try:
+                results = auto_lit._search_pubmed("test query", limit=1)
+                self.assertEqual(len(results), 1)
+                paper = results[0]
+                self.assertEqual(paper["title"], "Mocked PubMed Article Title")
+                self.assertEqual(paper["authors"], [{"name": "Doe John"}])
+                self.assertEqual(paper["year"], 2025)
+                self.assertEqual(paper["externalIds"]["DOI"], "10.1234/mock.doi")
+                self.assertEqual(paper["journal"]["name"], "Journal of Testing")
+                self.assertEqual(paper["abstract"], "OBJECTIVE: To test XML parsing.")
+            finally:
+                auto_lit.time.sleep = original_sleep
+        finally:
+            requests.get = original_get
+
+    def test_pubmed_key_delay_config(self):
+        # Verify delay is 0.2s when key is set, and 1.5s when key is empty
+        original_key = auto_lit.PUBMED_KEY
+        try:
+            auto_lit.PUBMED_KEY = "mock_key"
+            
+            # Mock requests.get and sleep
+            import requests
+            from unittest.mock import MagicMock
+            
+            mock_responses = [
+                MagicMock(status_code=200, json=lambda: {"esearchresult": {"idlist": ["1"]}}, raise_for_status=lambda: None),
+                MagicMock(status_code=200, content=b"<PubmedArticleSet></PubmedArticleSet>", raise_for_status=lambda: None)
+            ]
+            call_count = 0
+            def mock_get(*args, **kwargs):
+                nonlocal call_count
+                res = mock_responses[call_count]
+                call_count += 1
+                return res
+            
+            original_get = requests.get
+            requests.get = mock_get
+            
+            sleep_args = []
+            original_sleep = auto_lit.time.sleep
+            auto_lit.time.sleep = lambda s: sleep_args.append(s)
+            
+            try:
+                auto_lit._search_pubmed("query", limit=1)
+                self.assertIn(0.2, sleep_args)
+            finally:
+                auto_lit.time.sleep = original_sleep
+                requests.get = original_get
+                
+            # Test empty key
+            auto_lit.PUBMED_KEY = ""
+            requests.get = mock_get
+            call_count = 0
+            sleep_args = []
+            original_sleep = auto_lit.time.sleep
+            auto_lit.time.sleep = lambda s: sleep_args.append(s)
+            try:
+                auto_lit._search_pubmed("query", limit=1)
+                self.assertIn(1.5, sleep_args)
+            finally:
+                auto_lit.time.sleep = original_sleep
+                requests.get = original_get
+        finally:
+            auto_lit.PUBMED_KEY = original_key
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -175,13 +175,20 @@ Step1 ──→ Ver1 ──→ Step2 ──→ Step3 ──→ Step4 ──→ V
 
 ```
 synthesize_output/
-├── cache/              # PDF 全文缓存（SHA256 命名）
-├── findings/           # Step1 单篇发现 JSON（内容 hash + 问题 + 模型 + 缓存版本）
-├── outline.json         # Step2 大纲
-├── report.md            # Step4/6 结构化报告
-├── article.md           # Step5 叙事文章
-├── diagram.md           # Step7 Mermaid 示意图
-└── verification.md      # Ver A/B 验证报告
+├── cache/                  # PDF 全文缓存（SHA256 命名）
+├── findings/               # Step1 单篇发现 JSON（内容 hash + 问题 + 模型 + 缓存版本）
+├── outline.json            # Step2 大纲
+├── outline.meta.json       # Step2 大纲缓存元数据
+├── sections.json           # Step3 各章节草稿
+├── sections.meta.json      # Step3 各章节缓存元数据
+├── report.md               # Step4/6 结构化报告
+├── report.meta.json        # Step4 报告缓存元数据
+├── article.md              # Step5 叙事文章
+├── table.md                # Step7 总结表格
+├── diagram.md              # Step7 Mermaid 示意图
+├── verification.md         # Ver A/B/B0 第一次验证报告
+├── verification_after_fix.md # 修正后二次验证报告（仅在发现问题且启用修正时生成）
+└── evidence_coverage.json  # EvidencePack 覆盖率报告
 ```
 
 ### Step7 示意图

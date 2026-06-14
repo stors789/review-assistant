@@ -131,14 +131,20 @@ Typical `explore_synthesize.py` output:
 
 ```text
 synthesize_output/
-├── report.md          # Structured review report
-├── article.md         # Narrative article
-├── table.md           # Summary table
-├── diagram.md         # Mermaid diagram
-├── verification.md    # Citation and logic verification
-├── outline.json       # Generated outline
-├── findings/          # Per-paper extracted findings
-└── cache/             # PDF text cache
+├── report.md               # Structured review report
+├── report.meta.json        # Report caching metadata
+├── article.md              # Narrative article
+├── table.md                # Summary table
+├── diagram.md              # Mermaid diagram
+├── verification.md         # Citation and logic verification
+├── verification_after_fix.md # Revised report verification (if issues are fixed)
+├── outline.json            # Generated outline
+├── outline.meta.json       # Outline caching metadata
+├── sections.json           # Cached section drafts
+├── sections.meta.json      # Section drafts caching metadata
+├── findings/               # Per-paper extracted findings
+├── cache/                  # PDF text cache
+└── evidence_coverage.json  # EvidencePack coverage report
 ```
 
 Typical `paper_breakdown.py` output:
@@ -189,7 +195,7 @@ Additional DeepSeek keys are auto-detected by the synthesis pipeline for key rot
 
 - Zotero access is read-only: the scripts copy or read the SQLite database without requiring Zotero to close.
 - PDF coverage is checked against actual local files, not only Zotero attachment records.
-- Semantic Scholar requests are rate-limited with a cross-process lock.
+- Semantic Scholar requests are rate-limited with a platform-adaptive cross-process lock (using fcntl on Unix and msvcrt on Windows).
 - PDF text and LLM findings are cached to make reruns cheaper and reproducible.
 - Analytical extraction uses deterministic model settings where practical.
 - The synthesis pipeline favors grounded findings over broad, unsupported narrative generation.
