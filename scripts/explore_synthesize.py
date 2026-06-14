@@ -35,6 +35,8 @@ from zotero_reader import ZoteroReader
 
 FINDINGS_CACHE_VERSION = "2026-06-14-v4"
 OUTLINE_CACHE_VERSION = "2026-06-14-v2"
+SECTIONS_CACHE_VERSION = "2026-06-14-v1"
+REPORT_CACHE_VERSION = "2026-06-14-v1"
 EVIDENCE_PACK_VERSION = "2026-06-14-v2"
 STOP_AFTER_CHOICES = ("step1", "ver1", "step2", "step3", "step4")
 
@@ -233,6 +235,7 @@ VERIFY_CITATION_PROMPT = """你是学术审稿人。验证报告中每条引用�
 1. 作者名是否与发现中标注的 cite_key 一致
 2. 数值/方向结论是否与发现的 claim_cn 一致
 3. 是否存在无引用支持的断言
+4. 是否在给出的全局参考文献列表中缺少该引用（仅当全局列表中确实没有时才报错）
 
 输出 JSON 数组:
 [{{"location": "段落开头文字...", "ref_num": N, "issue": "问题描述", "severity": "error/warning"}}]
@@ -1201,7 +1204,8 @@ def step1_extract_single(client: OpenAI, pdf_path: Path, meta: dict, question: s
     try:
         user_prompt = (
             f"论文信息: {meta.get('authors', '')} ({meta.get('year', '')}). {meta.get('title', '')}\n\n"
-            f"研究问题：{question}\n\n论文文本输入：\n{prompt_text}"
+            f"论文文本输入：\n{prompt_text}\n\n"
+            f"请根据上述论文文本，提取与以下研究问题相关的发现：\n研究问题：{question}"
         )
         result = call_json(client, STEP1_SYSTEM, user_prompt, model, 16384)
     except Exception as e:
@@ -1490,6 +1494,74 @@ def outline_cache_matches(meta_path: Path, question: str, model: str) -> bool:
         and meta.get("question") == question
         and meta.get("model") == model
     )
+
+
+def stable_json_sha256(data) -> str:
+    payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def build_step_cache_meta(version: str, question: str, model: str, **dependencies) -> dict:
+    meta = {
+        "version": version,
+        "question": question,
+        "model": model,
+    }
+    meta.update(dependencies)
+    return meta
+
+
+def step_cache_matches(meta_path: Path, expected_meta: dict) -> bool:
+    if not meta_path.exists():
+        return False
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return all(meta.get(key) == value for key, value in expected_meta.items())
+
+
+def load_cached_sections(sections_path: Path, meta_path: Path, expected_meta: dict) -> tuple[list[dict], dict] | None:
+    if not sections_path.exists() or not step_cache_matches(meta_path, expected_meta):
+        return None
+    try:
+        payload = json.loads(sections_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    sections = payload.get("sections")
+    paper_refs = payload.get("paper_refs")
+    if not isinstance(sections, list) or not isinstance(paper_refs, dict):
+        return None
+    normalized_refs = {}
+    for key, value in paper_refs.items():
+        try:
+            normalized_refs[int(key)] = value
+        except (TypeError, ValueError):
+            continue
+    return sections, normalized_refs
+
+
+def save_cached_sections(sections_path: Path, meta_path: Path, sections: list[dict],
+                         paper_refs: dict, meta: dict) -> None:
+    sections_path.write_text(json.dumps({
+        "sections": sections,
+        "paper_refs": paper_refs,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_cached_report(report_path: Path, meta_path: Path, expected_meta: dict) -> str | None:
+    if not report_path.exists() or not step_cache_matches(meta_path, expected_meta):
+        return None
+    try:
+        return report_path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+
+def save_cached_report(report_path: Path, meta_path: Path, report: str, meta: dict) -> None:
+    report_path.write_text(report, encoding="utf-8")
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 # ── Step 3: 分节合成 ─────────────────────────────────────────────────────────
@@ -2105,10 +2177,17 @@ def verify_citations(report_text: str, all_results: list[dict], client, model: s
     findings_index = "\n".join(idx_lines)
 
     issues = []
+    refs_split = report_text.split("## 参考文献")
+    references_text = "## 参考文献" + refs_split[-1] if len(refs_split) > 1 else ""
+
     for chunk_no, chunk in enumerate(chunk_text(report_text, 10000), 1):
         try:
+            prompt_report = f"【报告片段 {chunk_no}】\n{chunk}"
+            if references_text and "## 参考文献" not in chunk:
+                prompt_report += f"\n\n【全局参考文献列表】\n{references_text}"
+            
             result = call_json(client, "", VERIFY_CITATION_PROMPT.format(
-                report=f"【报告片段 {chunk_no}】\n{chunk}", findings_index=findings_index), model, 65536)
+                report=prompt_report, findings_index=findings_index), model, 65536)
         except Exception as e:
             return f"⚠ 引用验证失败: {e}"
         chunk_issues = result if isinstance(result, list) else [result]
@@ -2406,7 +2485,7 @@ def main():
                 "total_chars": cov.get("total_chars"),
                 "pack_chars": cov.get("pack_chars"),
                 "coverage_ratio": cov.get("coverage_ratio"),
-                "chunks_used": len(cov.get("selected_chunks", [])),
+                "chunks_used": len(cov.get("selected_chunks", [])) if isinstance(cov.get("selected_chunks", []), list) else cov.get("selected_chunks", 0),
                 "ai_reranked": cov.get("ai_reranked", False)
             })
     if coverage_report:
@@ -2440,13 +2519,26 @@ def main():
         return
 
     # ── Step 3 ──
-    sections, paper_refs = step3_match_and_write(client_factory, outline, all_results, args.question, args.model, args.workers)
     sections_debug_path = output_dir / "sections.json"
-    sections_debug_path.write_text(json.dumps({
-        "sections": sections,
-        "paper_refs": paper_refs,
-    }, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"  📄 分节草稿已保存: {sections_debug_path}", flush=True)
+    sections_meta_path = output_dir / "sections.meta.json"
+    outline_hash = stable_json_sha256(outline)
+    findings_hash = stable_json_sha256(all_results)
+    sections_meta = build_step_cache_meta(
+        SECTIONS_CACHE_VERSION,
+        args.question,
+        args.model,
+        outline_sha256=outline_hash,
+        findings_sha256=findings_hash,
+    )
+    cached_sections = load_cached_sections(sections_debug_path, sections_meta_path, sections_meta)
+    if cached_sections:
+        print(f"── Step 3: 加载缓存分节草稿 ──", flush=True)
+        sections, paper_refs = cached_sections
+        print(f"  📄 分节草稿已加载: {sections_debug_path} ({len(sections)} 节)", flush=True)
+    else:
+        sections, paper_refs = step3_match_and_write(client_factory, outline, all_results, args.question, args.model, args.workers)
+        save_cached_sections(sections_debug_path, sections_meta_path, sections, paper_refs, sections_meta)
+        print(f"  📄 分节草稿已保存: {sections_debug_path}", flush=True)
 
     if not sections:
         print("撰写失败，无内容产出。退出。", flush=True)
@@ -2456,11 +2548,26 @@ def main():
         return
 
     # ── Step 4 ──
-    report = step4_integrate(client, outline, sections, args.question, paper_refs, args.model)
-
     report_path = output_dir / "report.md"
-    report_path.write_text(report, encoding="utf-8")
-    print(f"  📄 报告已保存: {report_path}", flush=True)
+    report_meta_path = output_dir / "report.meta.json"
+    sections_hash = stable_json_sha256(sections)
+    paper_refs_hash = stable_json_sha256(paper_refs)
+    report_meta = build_step_cache_meta(
+        REPORT_CACHE_VERSION,
+        args.question,
+        args.model,
+        outline_sha256=outline_hash,
+        sections_sha256=sections_hash,
+        paper_refs_sha256=paper_refs_hash,
+    )
+    report = load_cached_report(report_path, report_meta_path, report_meta)
+    if report is not None:
+        print(f"── Step 4: 加载缓存报告 ──", flush=True)
+        print(f"  📄 报告已加载: {report_path}", flush=True)
+    else:
+        report = step4_integrate(client, outline, sections, args.question, paper_refs, args.model)
+        save_cached_report(report_path, report_meta_path, report, report_meta)
+        print(f"  📄 报告已保存: {report_path}", flush=True)
     if should_stop_after("step4", args.stop_after):
         print_stop_after("step4", output_dir)
         return
@@ -2489,7 +2596,7 @@ def main():
             report = step6_fix_report(client, report, verification_report, all_results, args.model, pass_num=fix_pass, total_passes=args.max_fix_passes)
             report = _clean_refs(report, paper_refs)
             report_path = output_dir / "report.md"
-            report_path.write_text(report, encoding="utf-8")
+            save_cached_report(report_path, report_meta_path, report, report_meta)
             print(f"  📄 修正后报告已保存: {report_path}", flush=True)
             if not args.skip_verify:
                 print(f"\n── Ver A/B: 修正后二次验证 (第 {fix_pass}/{args.max_fix_passes} 轮) ──", flush=True)
@@ -2507,7 +2614,7 @@ def main():
                         report += "\n\n## 遗留问题与局限性\n\n"
                         report += "以下为自动验证步骤中发现且未能自动修复的逻辑或引用问题，供读者参考：\n\n"
                         report += (vp2 + va2 + vcm2 + vb2)
-                        report_path.write_text(report, encoding="utf-8")
+                        save_cached_report(report_path, report_meta_path, report, report_meta)
                 else:
                     print(f"  ✅ 修正后二次验证通过，无问题\n", flush=True)
                     second_path = output_dir / "verification_after_fix.md"

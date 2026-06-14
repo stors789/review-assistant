@@ -96,6 +96,59 @@ class ExploreSynthesizeTests(unittest.TestCase):
             explore.call_json = original_call_json
             explore.call_text = original_call_text
 
+    def test_stable_json_sha256_is_order_independent_for_dicts(self):
+        first = {"b": 2, "a": {"y": 1, "x": 0}}
+        second = {"a": {"x": 0, "y": 1}, "b": 2}
+        self.assertEqual(explore.stable_json_sha256(first), explore.stable_json_sha256(second))
+
+    def test_cached_sections_loads_only_when_meta_matches(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sections_path = root / "sections.json"
+            meta_path = root / "sections.meta.json"
+            sections = [{"heading": "A", "content": "Body [1]"}]
+            paper_refs = {1: {"authors": "Author", "title": "Title", "year": "2024"}}
+            meta = explore.build_step_cache_meta(
+                explore.SECTIONS_CACHE_VERSION,
+                "question",
+                "model",
+                outline_sha256="outline",
+                findings_sha256="findings",
+            )
+
+            explore.save_cached_sections(sections_path, meta_path, sections, paper_refs, meta)
+            loaded = explore.load_cached_sections(sections_path, meta_path, meta)
+            self.assertIsNotNone(loaded)
+            loaded_sections, loaded_refs = loaded
+            self.assertEqual(loaded_sections, sections)
+            self.assertEqual(loaded_refs, paper_refs)
+
+            stale_meta = dict(meta)
+            stale_meta["findings_sha256"] = "changed"
+            self.assertIsNone(explore.load_cached_sections(sections_path, meta_path, stale_meta))
+
+    def test_cached_report_loads_only_when_meta_matches(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            report_path = root / "report.md"
+            meta_path = root / "report.meta.json"
+            report = "# Report\n\nBody [1]"
+            meta = explore.build_step_cache_meta(
+                explore.REPORT_CACHE_VERSION,
+                "question",
+                "model",
+                outline_sha256="outline",
+                sections_sha256="sections",
+                paper_refs_sha256="refs",
+            )
+
+            explore.save_cached_report(report_path, meta_path, report, meta)
+            self.assertEqual(explore.load_cached_report(report_path, meta_path, meta), report)
+
+            stale_meta = dict(meta)
+            stale_meta["sections_sha256"] = "changed"
+            self.assertIsNone(explore.load_cached_report(report_path, meta_path, stale_meta))
+
 
 if __name__ == "__main__":
     unittest.main()
