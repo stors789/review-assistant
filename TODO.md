@@ -63,11 +63,11 @@
 ### 11. 同名 PDF 导致结果映射错误
 * [ ] **不要用 `pdf_path.name` 作为论文身份**：`pipeline.py` 和 `verification.py` 当前用文件名排序、映射和重提取。Zotero 附件常见 `fulltext.pdf` / `paper.pdf` 同名，可能导致引用编号、quote 验证和重提取对应到错误 PDF。建议改用完整路径、Zotero itemID 或 PDF SHA256。
 
-### 12. 代理配置副作用
-* [ ] **默认尊重系统代理**：`llm_client.py` 会删除代理环境变量，`auto_lit.py` 会显式绕过代理。这会降低企业网络、VPN、国内出口环境的可迁移性。建议改为默认尊重系统代理，仅通过 `--no-proxy` 或环境变量显式关闭代理。
+### 12. 代理配置副作用（已缓解）
+* [x] **提供代理保留开关**：`llm_client.py` 和 `auto_lit.py` 已接入轻量配置。默认保持原先绕过代理的行为，避免破坏既有运行环境；需要走企业网络/VPN/本机代理时，可设置 `REVIEW_ASSISTANT_USE_PROXY=true` 保留系统代理变量。
 
-### 13. Step 7 模型硬编码
-* [ ] **让 Step 7 复用 CLI 模型或单独配置模型**：`pipeline.py` 的表格和 Mermaid 生成硬编码 `deepseek-v4-flash`，会绕过 `--model` / `--base-url` 的兼容预期。建议将 Step 7 模型参数化。
+### 13. Step 7 模型硬编码（已完成）
+* [x] **让 Step 7 复用配置模型或单独配置模型**：`pipeline.py` 的表格和 Mermaid 生成已支持 `--step7-model` 和 `REVIEW_ASSISTANT_STEP7_MODEL`，不再固定写死 `deepseek-v4-flash`。
 
 ### 14. 项目目录可迁移性
 * [ ] **避免把绝对符号链接当作可迁移项目根**：`/Users/eros/sciencing/review-assistant` 当前是指向 `/Users/eros/.agents/skills/review-assistant` 的绝对 symlink。迁移 `sciencing` 目录或换机器用户名后会断。建议将真实项目目录放入 repo，或在文档中明确这是本机 skill 安装路径。

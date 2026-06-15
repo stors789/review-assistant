@@ -13,7 +13,7 @@ It helps you move from a folder of papers to structured notes, claim verificatio
 - Verify claims in a paragraph against papers in a Zotero collection.
 - Explore a research question across a paper set and synthesize a report.
 - Generate a narrative review article, summary table, and Mermaid diagram.
-- Search Semantic Scholar for missing literature and generate RIS imports for Zotero.
+- Search Semantic Scholar for missing literature and import through Zotero Web API or RIS fallback.
 - Cache PDF text and extraction results so repeated runs do not waste API calls.
 
 ## Core Workflows
@@ -119,7 +119,7 @@ review-assistant-autolit \
 | `scripts/paper_breakdown.py` | Batch PDF-to-structured-note extraction. |
 | `scripts/claim_verify.py` | Claim decomposition and source verification against a paper set. |
 | `scripts/explore_synthesize.py` | End-to-end research-question synthesis pipeline. |
-| `scripts/auto_lit.py` | Semantic Scholar search to RIS import workflow. |
+| `scripts/auto_lit.py` | Semantic Scholar/PubMed search to Zotero Web API import or RIS fallback. |
 
 ## Full Synthesis Pipeline
 
@@ -263,7 +263,7 @@ Additional DeepSeek keys are auto-detected by the synthesis pipeline for key rot
 ## Limitations
 
 - The tools depend on the quality of PDF text extraction. Scanned or encrypted PDFs may need OCR or unlocking first.
-- RIS import into Zotero is semi-automatic and may require confirming the Zotero import dialog.
+- RIS import into Zotero is semi-automatic and may require confirming the Zotero import dialog; Web API import avoids this when configured.
 - The local Zotero API does not support write requests, so truly silent local collection creation is not implemented.
 - Generated reports should still be reviewed by a human, especially for high-stakes or publishable work.
 

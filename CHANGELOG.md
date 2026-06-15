@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Lightweight Configuration Layer**: Added `scripts/config.py` to centralize environment-backed defaults for API base URL, model selection, Step 7 model selection, worker count, proxy behavior, Zotero paths, and Zotero Web API import settings.
+- **Configurable Step 7 Model**: Added `--step7-model` and `REVIEW_ASSISTANT_STEP7_MODEL` so table and Mermaid generation no longer hard-code `deepseek-v4-flash`.
+- **Zotero Web API Import**: Added `scripts/zotero_web.py` and `auto_lit.py --web-import` to create Zotero items directly through the Zotero Web API for both user and group libraries.
+- **Automatic Collection Path Resolution**: Added support for `-c "Parent > Child"` as a real Zotero collection path in Web API mode, including automatic missing collection creation unless `--no-create-collection` is used.
+- **Local Sync Wait**: Added optional local sync waiting after Web API import so the tool can confirm newly created DOI records have appeared in the local Zotero SQLite database.
+- **Zotero Web API Configuration**: Added environment variables `ZOTERO_API_KEY`, `ZOTERO_LIBRARY_TYPE`, `ZOTERO_LIBRARY_ID`, `ZOTERO_WEB_IMPORT`, and `ZOTERO_SYNC_TIMEOUT`.
+
+### Changed
+- **Proxy Handling Is Configurable**: Kept the previous default proxy-stripping behavior for compatibility, but added `REVIEW_ASSISTANT_USE_PROXY=true` to preserve system proxy variables when needed.
+- **auto_lit Import Path**: `auto_lit.py` now keeps RIS generation as the default fallback while supporting no-dialog Web API import when configured.
+- **Documentation Updates**: Updated README, SKILL, TODO, and setup guidance to document configuration variables, Web API import, and the current remaining portability risks.
+
+### Tests
+- Added coverage for config environment parsing, Step 7 model propagation, Zotero Web API collection creation, item mapping, batched writes, local sync waiting, and `auto_lit.py` Web import behavior.
+
 ## [0.2.0] - 2026-06-15
 
 ### Added

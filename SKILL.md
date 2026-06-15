@@ -11,7 +11,7 @@ description: 综述助手。用途：①Zotero数据库查询与统计；②从Z
 
 | 脚本 | 用途 | 调用方式 |
 |---|---|---|
-| `python scripts/auto_lit.py` | 自然语言→Semantic Scholar 搜索→RIS 导入 Zotero | CLI |
+| `python scripts/auto_lit.py` | 自然语言→Semantic Scholar/PubMed 搜索→Zotero Web API 入库或 RIS fallback | CLI |
 | `python scripts/paper_breakdown.py` | 批量拆解 PDF 论文到结构化字段 | CLI |
 | `python scripts/claim_verify.py` | 段落→主张分解→Zotero 原文验证 | CLI |
 | `python scripts/explore_synthesize.py` | 研究问题→探索总结→报告+文章+表格+示意图 | CLI |
@@ -300,7 +300,7 @@ python scripts/auto_lit.py "theta EEG FDG PET" --screen --min-relevance 4 -m 0 -
 15. **"续写/修正上次的报告"** → 用 `--skip-step1` 跳过提取阶段
 
 ### 文献检索入库（能力E）
-16. **"帮我找 XX 文献，放进 XX 集"** → agent 翻译关键词后调 `auto_lit.py`，弹窗导入 Zotero
+16. **"帮我找 XX 文献，放进 XX 集"** → agent 翻译关键词后调 `auto_lit.py --web-import -c "<目标集>"` 直接写入 Zotero；未配置 Web API 时退回 RIS 导入提示
 17. **"报告里的缺口补一下"** → agent 识别表格中 `~无数据` 单元格，逐条搜→导入
 
 注意：脚本输出默认写到当前工作目录下的输出文件夹，Zotero 不需要关闭。
