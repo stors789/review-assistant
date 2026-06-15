@@ -220,7 +220,8 @@ python -m pip install -e .
 
 3. **Optional configurations:**
 - `ZOTERO_DIR`: Custom Zotero data directory (defaults to `~/Zotero`).
-- `ZOTERO_LINKED_BASE_DIR`: Base directory to resolve Zotero linked files relative attachments (`attachments:relative/path.pdf`).
+- `ZOTERO_LINKED_BASE_DIR`: Base directory to resolve Zotero linked file relative attachments (`attachments:relative/path.pdf`).
+- `ZOTERO_LINKED_PREFIX_MAP`: Cross-system Windows drive-letter mapping, e.g. `C:\Users\...\= >/Users/.../|D:\Data\=>/mnt/data/`, used when reading a Zotero DB created on a different OS.
 - `AUTO_LIT_LOCK_DIR`: Custom directory to place the Semantic Scholar cross-process lock file.
 - `ZOTERO_API_KEY`: Zotero Web API key with write permission.
 - `ZOTERO_LIBRARY_TYPE`: Zotero Web API library type, `user` or `group`.
