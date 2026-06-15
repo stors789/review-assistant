@@ -1,5 +1,7 @@
 # Review Assistant
 
+> 中文用户看这里 → [GUIDE.zh-CN.md](./GUIDE.zh-CN.md)（人话版流程说明）
+
 ## About
 
 Review Assistant is a Codex/OpenCode skill for literature-review workflows built around Zotero collections, local PDFs, and LLM-assisted synthesis.
@@ -281,10 +283,13 @@ Additional DeepSeek keys are auto-detected by the synthesis pipeline for key rot
 
 ```text
 .
-├── SKILL.md                 # Codex/OpenCode skill instructions
-├── README.md                # User-facing project documentation
-├── ABOUT.md                 # Short project overview
+├── SKILL.md                   # Codex/OpenCode skill instructions
+├── README.md                  # User-facing project documentation
+├── GUIDE.zh-CN.md             # 中文人话指南（流程、能力、常见坑）
+├── CHANGELOG.md               # Release changelog
+├── TODO.md                    # Development roadmap
 ├── requirements.txt
+├── pyproject.toml
 ├── scripts/
 ├── specs/
 ├── tests/
