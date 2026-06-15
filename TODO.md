@@ -60,8 +60,8 @@
 
 ## 🔎 2026-06-15 追加审查：待处理问题
 
-### 11. 同名 PDF 导致结果映射错误
-* [ ] **不要用 `pdf_path.name` 作为论文身份**：`pipeline.py` 和 `verification.py` 当前用文件名排序、映射和重提取。Zotero 附件常见 `fulltext.pdf` / `paper.pdf` 同名，可能导致引用编号、quote 验证和重提取对应到错误 PDF。建议改用完整路径、Zotero itemID 或 PDF SHA256。
+### 11. 同名 PDF 导致结果映射错误（已修复）
+* [x] **不要用 `pdf_path.name` 作为论文身份**：`pipeline.py` 的 `step1_extract_single` 现在在结果中同时返回 `pdf_path`（全路径）和 `file`（文件名）；`step1_extract_all` 和 `verify_findings` 改用全路径排序和查找；`load_cached_findings_for_papers` 从缓存加载时自动补充 `pdf_path` 字段。
 
 ### 12. 代理配置副作用（已缓解）
 * [x] **提供代理保留开关**：`llm_client.py` 和 `auto_lit.py` 已接入轻量配置。默认保持原先绕过代理的行为，避免破坏既有运行环境；需要走企业网络/VPN/本机代理时，可设置 `REVIEW_ASSISTANT_USE_PROXY=true` 保留系统代理变量。
@@ -69,8 +69,8 @@
 ### 13. Step 7 模型硬编码（已完成）
 * [x] **让 Step 7 复用配置模型或单独配置模型**：`pipeline.py` 的表格和 Mermaid 生成已支持 `--step7-model` 和 `REVIEW_ASSISTANT_STEP7_MODEL`，不再固定写死 `deepseek-v4-flash`。
 
-### 14. 项目目录可迁移性
-* [ ] **避免把绝对符号链接当作可迁移项目根**：`/Users/eros/sciencing/review-assistant` 当前是指向 `/Users/eros/.agents/skills/review-assistant` 的绝对 symlink。迁移 `sciencing` 目录或换机器用户名后会断。建议将真实项目目录放入 repo，或在文档中明确这是本机 skill 安装路径。
+### 14. 项目目录可迁移性（已修复）
+* [x] **避免把绝对符号链接当作可迁移项目根**：symlink 已改为相对路径 `../.agents/skills/review-assistant`，在同一 home 目录结构下可迁移。
 
-### 15. 跨系统 Zotero linked-file 路径
-* [ ] **补 Windows drive path 映射能力**：`zotero_reader.py` 目前会归一化反斜杠，但跨系统读取 Zotero DB 时，`C:/...` 在 macOS/Linux 不会被识别为本机绝对路径。建议支持 Windows 路径前缀到本机路径的环境变量映射。
+### 15. 跨系统 Zotero linked-file 路径（已修复）
+* [x] **补 Windows drive path 映射能力**：`zotero_reader.py` 新增 Windows 驱动盘路径前缀映射，支持 `ZOTERO_LINKED_PREFIX_MAP=C:\Users\...\= >/Users/.../|D:\Data\=>/mnt/data/` 格式。`config.py` 新增 `get_linked_prefix_map()` 助手函数。

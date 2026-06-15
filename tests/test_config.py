@@ -34,6 +34,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.get_workers(3), 7)
 
     def test_step7_model_has_specific_override(self):
+        os.environ.pop("REVIEW_ASSISTANT_STEP7_MODEL", None)
         os.environ["REVIEW_ASSISTANT_MODEL"] = "main-model"
         self.assertEqual(config.get_step7_model(), "main-model")
         os.environ["REVIEW_ASSISTANT_STEP7_MODEL"] = "table-model"

@@ -92,3 +92,20 @@ def get_zotero_web_import(default: bool = False) -> bool:
 def get_zotero_sync_timeout(default: int = 120) -> int:
     timeout = env_int("ZOTERO_SYNC_TIMEOUT", default)
     return max(0, timeout)
+
+
+def get_linked_prefix_map() -> list[tuple[str, str]]:
+    raw = env_str("ZOTERO_LINKED_PREFIX_MAP", "")
+    if not raw:
+        return []
+    mappings = []
+    for entry in raw.split("|"):
+        entry = entry.strip()
+        if "=>" not in entry:
+            continue
+        src, dst = entry.split("=>", 1)
+        src = src.strip()
+        dst = dst.strip()
+        if src and dst:
+            mappings.append((src, dst))
+    return mappings

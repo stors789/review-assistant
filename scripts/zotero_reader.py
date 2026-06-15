@@ -87,7 +87,26 @@ class ZoteroReader:
                     return full
             return None
 
-        # 3. Absolute path (e.g. /path/to/file.pdf or C:\path\to\file.pdf)
+        # 3a. Windows drive path → local prefix mapping
+        if re.match(r'^[A-Za-z]:[/\\]', path):
+            prefix_map = os.environ.get("ZOTERO_LINKED_PREFIX_MAP", "")
+            if prefix_map:
+                for mapping in prefix_map.split("|"):
+                    mapping = mapping.strip()
+                    if "=>" not in mapping:
+                        continue
+                    win_prefix, local_prefix = mapping.split("=>", 1)
+                    win_prefix = win_prefix.strip()
+                    local_prefix = local_prefix.strip()
+                    if not win_prefix or not local_prefix:
+                        continue
+                    if path.lower().startswith(win_prefix.lower()):
+                        translated = local_prefix + path[len(win_prefix):]
+                        full = Path(translated)
+                        if full.exists():
+                            return full
+
+        # 3b. Absolute path (e.g. /path/to/file.pdf)
         try:
             full = Path(path)
             if full.is_absolute() and full.exists():

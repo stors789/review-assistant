@@ -54,7 +54,8 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
         except Exception as e:
             with print_lock:
                 print(f"  [{idx}/{total}] {stem} -> ⚠ PDF提取失败: {e}", flush=True)
-            return {"file": pdf_path.name, "relevant": False, "findings": [], "error": str(e),
+            return {"file": pdf_path.name, "pdf_path": str(pdf_path), "relevant": False,
+                    "findings": [], "error": str(e),
                     "ref_title": meta.get("title", ""), "ref_authors": meta.get("authors", ""),
                     "ref_year": meta.get("year", ""), "ref_num": meta.get("ref_num", 0)}
 
@@ -93,7 +94,8 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
     except Exception as e:
         with print_lock:
             print(f"  [{idx}/{total}] {stem} -> ⚠ API失败: {e}", flush=True)
-        return {"file": pdf_path.name, "relevant": False, "findings": [], "error": str(e),
+        return {"file": pdf_path.name, "pdf_path": str(pdf_path), "relevant": False,
+                "findings": [], "error": str(e),
                 "ref_title": meta.get("title", ""), "ref_authors": meta.get("authors", ""),
                 "ref_year": meta.get("year", ""), "ref_num": meta.get("ref_num", 0)}
 
@@ -114,7 +116,8 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
         else:
             print(f"  [{idx}/{total}] {stem} -> ✗ 不相关 ({source}, {input_mode}, {charset}字)", flush=True)
 
-    result = {"file": pdf_path.name, "relevant": relevant, "findings": findings,
+    result = {"file": pdf_path.name, "pdf_path": str(pdf_path), "relevant": relevant,
+            "findings": findings,
             "ref_title": meta.get("title", ""), "ref_authors": meta.get("authors", ""),
             "ref_year": meta.get("year", ""), "ref_num": meta.get("ref_num", 0),
             "cache": {
@@ -167,7 +170,7 @@ def step1_extract_all(client_factory, papers: list[dict], question: str, model: 
         for future in as_completed(futures):
             results.append(future.result())
 
-    results.sort(key=lambda r: [Path(p["pdf_path"]).name for p in papers].index(r["file"]))
+    results.sort(key=lambda r: [p["pdf_path"] for p in papers].index(r["pdf_path"]))
 
     relevant_count = sum(1 for r in results if r["relevant"])
     total_findings = sum(len(r.get("findings", [])) for r in results)
@@ -204,7 +207,7 @@ def load_cached_findings_for_papers(papers: list[dict], question: str, model: st
         key = findings_cache_key(pdf_path, question, model, use_evidence_pack, ai_rerank_chunks)
         path = findings_dir / f"{key}.json"
         if not path.exists():
-            missing.append(pdf_path.name)
+            missing.append(str(pdf_path))
             continue
         data = normalize_finding_relevance(json.loads(path.read_text(encoding="utf-8")))
         cache_meta = data.get("cache", {})
@@ -216,9 +219,10 @@ def load_cached_findings_for_papers(papers: list[dict], question: str, model: st
             or cache_meta.get("input_mode") != ("evidence_pack" if use_evidence_pack else "full_prefix")
             or bool(cache_meta.get("ai_rerank_chunks")) != bool(ai_rerank_chunks and use_evidence_pack)
         ):
-            missing.append(pdf_path.name)
+            missing.append(str(pdf_path))
             continue
         data["ref_num"] = i
+        data["pdf_path"] = str(pdf_path)
         results.append(data)
 
     if missing:

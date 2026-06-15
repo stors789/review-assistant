@@ -32,8 +32,9 @@ def verify_findings(all_results: list[dict], papers: list[dict],
 
     file_to_pdf = {}
     for p in papers:
-        pdf_path = Path(p.get("pdf_path", ""))
-        file_to_pdf[pdf_path.name] = pdf_path
+        path_str = p.get("pdf_path", "")
+        if path_str:
+            file_to_pdf[path_str] = Path(path_str)
 
     total_findings = 0
     total_failed = 0
@@ -42,8 +43,8 @@ def verify_findings(all_results: list[dict], papers: list[dict],
     for paper in all_results:
         if not paper.get("relevant") or not paper.get("findings"):
             continue
-        file = paper.get("file", "")
-        pdf_path = file_to_pdf.get(file)
+        result_pdf_path = paper.get("pdf_path", "")
+        pdf_path = file_to_pdf.get(result_pdf_path)
         if not pdf_path:
             continue
 
@@ -79,10 +80,10 @@ def verify_findings(all_results: list[dict], papers: list[dict],
 
             has_failure = True
             total_failed += 1
-            print(f"  ❌ {file[:40]}... → quote未在原文找到", flush=True)
+            print(f"  ❌ {pdf_path.name[:40]}... → quote未在原文找到", flush=True)
 
         if has_failure:
-            retry_files.add(file)
+            retry_files.add(str(pdf_path))
 
     pass_rate = (total_findings - total_failed) / total_findings * 100 if total_findings else 100
     print(f"  {total_findings - total_failed}/{total_findings} 通过 ({pass_rate:.0f}%)", flush=True)
@@ -99,10 +100,10 @@ def verify_findings(all_results: list[dict], papers: list[dict],
     for attempt in range(2):
         still_bad = set()
         for i, paper in enumerate(all_results):
-            file = paper.get("file", "")
-            if file not in retry_files:
+            result_pdf_path = paper.get("pdf_path", "")
+            if result_pdf_path not in retry_files:
                 continue
-            pdf_path = file_to_pdf.get(file)
+            pdf_path = file_to_pdf.get(result_pdf_path)
             if not pdf_path:
                 continue
             meta = {"title": paper.get("ref_title", ""), "authors": paper.get("ref_authors", ""),
@@ -115,10 +116,10 @@ def verify_findings(all_results: list[dict], papers: list[dict],
                                        ai_rerank_chunks=ai_rerank_chunks)
             if new.get("relevant") and new.get("findings"):
                 all_results[i] = new
-                print(f"  ✅ 重提取成功: {file[:40]}...", flush=True)
+                print(f"  ✅ 重提取成功: {pdf_path.name[:40]}...", flush=True)
             else:
-                still_bad.add(file)
-                print(f"  ⚠ 重提取仍失败: {file[:40]}...", flush=True)
+                still_bad.add(result_pdf_path)
+                print(f"  ⚠ 重提取仍失败: {pdf_path.name[:40]}...", flush=True)
         if not still_bad:
             break
         retry_files = still_bad

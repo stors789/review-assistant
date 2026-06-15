@@ -17,6 +17,11 @@ All notable changes to this project will be documented in this file.
 - **auto_lit Import Path**: `auto_lit.py` now keeps RIS generation as the default fallback while supporting no-dialog Web API import when configured.
 - **Documentation Updates**: Updated README, SKILL, TODO, and setup guidance to document configuration variables, Web API import, and the current remaining portability risks.
 
+### Fixed
+- **Same-name PDF Mapping Bug**: `pipeline.py` and `verification.py` no longer use bare filename to map results back to papers. Result dicts now carry `pdf_path` (full path) alongside `file` (display name), and all lookups, sorting, and retries use the full path to avoid collisions when Zotero storage directories contain identical filenames.
+- **Absolute Symlink Portability**: The project root symlink `/Users/eros/sciencing/review-assistant` was changed from an absolute target to a relative one (`../.agents/skills/review-assistant`), making the shortcut survive moves within the same home directory structure.
+- **Windows Linked-File Path Translation**: `zotero_reader.py` now supports `ZOTERO_LINKED_PREFIX_MAP` (`src=>dst|...`) to map Windows drive-letter paths (e.g. `C:\Users\...`) to local filesystem paths on macOS/Linux, enabling cross-system Zotero linked-file resolution.
+
 ### Tests
 - Added coverage for config environment parsing, Step 7 model propagation, Zotero Web API collection creation, item mapping, batched writes, local sync waiting, and `auto_lit.py` Web import behavior.
 
