@@ -9,28 +9,32 @@ import json
 import itertools
 import threading
 from openai import OpenAI
+from config import DEFAULT_BASE_URL, get_api_key, should_strip_proxy
 
 _key_cycle = None
 _key_lock = threading.Lock()
-_base_url = "https://api.deepseek.com"
+_base_url = DEFAULT_BASE_URL
 
 
-def init_client_pool(base_url="https://api.deepseek.com", api_key=None):
+def init_client_pool(base_url=DEFAULT_BASE_URL, api_key=None, strip_proxy=None):
     """Initialize the rotation key pool and clear proxy settings."""
     global _key_cycle, _base_url
     _base_url = base_url
 
-    # Strip proxy variables to bypass local proxies
-    for v in (
-        "all_proxy", "ALL_PROXY", "socks_proxy", "SOCKS_PROXY", "socks5_proxy", "SOCKS5_PROXY",
-        "http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY"
-    ):
-        os.environ.pop(v, None)
+    if strip_proxy is None:
+        strip_proxy = should_strip_proxy()
+    if strip_proxy:
+        # Strip proxy variables to bypass local proxies
+        for v in (
+            "all_proxy", "ALL_PROXY", "socks_proxy", "SOCKS_PROXY", "socks5_proxy", "SOCKS5_PROXY",
+            "http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY"
+        ):
+            os.environ.pop(v, None)
 
     if api_key:
         api_keys = [api_key]
     else:
-        api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        api_key = get_api_key()
         if not api_key:
             raise ValueError("请设置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY")
 

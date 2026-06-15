@@ -36,6 +36,7 @@ py-modules = [
     "explore_synthesize",
     "auto_lit",
     "llm_client",
+    "config",
     "pipeline",
     "utils",
     "caching",

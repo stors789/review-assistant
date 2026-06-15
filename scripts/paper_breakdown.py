@@ -7,7 +7,6 @@ if sys.version_info < (3, 10):
 
 import argparse
 import json
-import os
 import csv
 import threading
 from pathlib import Path
@@ -15,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from utils import extract_text
 import llm_client
+from config import get_api_key, get_base_url, get_model, get_workers, get_zotero_dir, DEFAULT_FLASH_MODEL
 
 FIELDS = {
     "original_title": "原题目",
@@ -140,11 +140,11 @@ def main():
     parser.add_argument("--list-collections", action="store_true", help="列出所有 Zotero 论文集")
     parser.add_argument("--list-papers", help="列出指定 Zotero 论文集的全部文献及 PDF 状态")
     parser.add_argument("--output", "-o", default="output", help="输出文件夹")
-    parser.add_argument("--model", "-m", default="deepseek-v4-flash", help="模型名（默认 deepseek-v4-flash）")
+    parser.add_argument("--model", "-m", default=get_model(DEFAULT_FLASH_MODEL), help="模型名（默认 deepseek-v4-flash）")
     parser.add_argument("--api-key", "-k", help="DeepSeek API Key（或用 DEEPSEEK_API_KEY 环境变量）")
-    parser.add_argument("--base-url", default="https://api.deepseek.com", help="API Base URL")
-    parser.add_argument("--zotero-dir", help="Zotero 数据根目录（优先于环境变量）")
-    parser.add_argument("--workers", "-w", type=int, default=3, help="并发数（默认 3）")
+    parser.add_argument("--base-url", default=get_base_url(), help="API Base URL")
+    parser.add_argument("--zotero-dir", default=get_zotero_dir(), help="Zotero 数据根目录（优先于环境变量）")
+    parser.add_argument("--workers", "-w", type=int, default=get_workers(3), help="并发数（默认 3）")
     args = parser.parse_args()
 
     if args.list_collections:
@@ -177,7 +177,7 @@ def main():
                 print()
         return
 
-    api_key = args.api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    api_key = args.api_key or get_api_key()
     if not api_key:
         print("请设置 DEEPSEEK_API_KEY 环境变量或用 --api-key 指定")
         sys.exit(1)

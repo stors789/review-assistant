@@ -16,12 +16,12 @@ if sys.version_info < (3, 10):
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import llm_client
+from config import get_api_key, get_base_url, get_model, get_zotero_dir, DEFAULT_FLASH_MODEL
 from utils import extract_text
 from zotero_reader import ZoteroReader
 
@@ -116,16 +116,16 @@ def main():
     parser.add_argument("collection", help="Zotero 论文集路径（如 '电波 > alpha'）")
     parser.add_argument("--paragraph", "-p", help="待验证段落文本")
     parser.add_argument("--file", "-f", help="从文件读取段落")
-    parser.add_argument("--model", "-m", default="deepseek-v4-flash")
+    parser.add_argument("--model", "-m", default=get_model(DEFAULT_FLASH_MODEL))
     parser.add_argument("--output", "-o", help="输出 JSON 报告路径")
     parser.add_argument("--top", type=int, default=3, help="每条主张最多验证的论文数")
     parser.add_argument("--api-key", "-k", help="DeepSeek API Key（或用 DEEPSEEK_API_KEY 环境变量）")
-    parser.add_argument("--base-url", help="API Base URL (默认: https://api.deepseek.com)")
-    parser.add_argument("--zotero-dir", help="Zotero 数据根目录（优先于环境变量）")
+    parser.add_argument("--base-url", default=get_base_url(), help="API Base URL (默认: https://api.deepseek.com)")
+    parser.add_argument("--zotero-dir", default=get_zotero_dir(), help="Zotero 数据根目录（优先于环境变量）")
     args = parser.parse_args()
 
-    api_key = args.api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    base_url = args.base_url or "https://api.deepseek.com"
+    api_key = args.api_key or get_api_key()
+    base_url = args.base_url
     if not api_key:
         sys.exit("请设置 OPENAI_API_KEY/DEEPSEEK_API_KEY 环境变量，或用 --api-key / -k 指定")
 

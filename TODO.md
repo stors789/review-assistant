@@ -57,3 +57,20 @@
 3. **降低平台副作用**：把 `auto_lit.py` 的 Zotero 自动导入改为显式参数；锁文件目录支持环境变量或临时目录回退。
 4. **补迁移性测试**：增加 Python 版本入口测试、linked-file 路径测试、`auto_lit` 不自动打开 Zotero 的测试、以及 provider 参数降级测试。
 5. **最后更新验证说明**：文档中记录推荐测试命令：`python -m unittest discover -s tests -v`；如果以后使用 pytest，再将 pytest 放入开发依赖。
+
+## 🔎 2026-06-15 追加审查：待处理问题
+
+### 11. 同名 PDF 导致结果映射错误
+* [ ] **不要用 `pdf_path.name` 作为论文身份**：`pipeline.py` 和 `verification.py` 当前用文件名排序、映射和重提取。Zotero 附件常见 `fulltext.pdf` / `paper.pdf` 同名，可能导致引用编号、quote 验证和重提取对应到错误 PDF。建议改用完整路径、Zotero itemID 或 PDF SHA256。
+
+### 12. 代理配置副作用
+* [ ] **默认尊重系统代理**：`llm_client.py` 会删除代理环境变量，`auto_lit.py` 会显式绕过代理。这会降低企业网络、VPN、国内出口环境的可迁移性。建议改为默认尊重系统代理，仅通过 `--no-proxy` 或环境变量显式关闭代理。
+
+### 13. Step 7 模型硬编码
+* [ ] **让 Step 7 复用 CLI 模型或单独配置模型**：`pipeline.py` 的表格和 Mermaid 生成硬编码 `deepseek-v4-flash`，会绕过 `--model` / `--base-url` 的兼容预期。建议将 Step 7 模型参数化。
+
+### 14. 项目目录可迁移性
+* [ ] **避免把绝对符号链接当作可迁移项目根**：`/Users/eros/sciencing/review-assistant` 当前是指向 `/Users/eros/.agents/skills/review-assistant` 的绝对 symlink。迁移 `sciencing` 目录或换机器用户名后会断。建议将真实项目目录放入 repo，或在文档中明确这是本机 skill 安装路径。
+
+### 15. 跨系统 Zotero linked-file 路径
+* [ ] **补 Windows drive path 映射能力**：`zotero_reader.py` 目前会归一化反斜杠，但跨系统读取 Zotero DB 时，`C:/...` 在 macOS/Linux 不会被识别为本机绝对路径。建议支持 Windows 路径前缀到本机路径的环境变量映射。

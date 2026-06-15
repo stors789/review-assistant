@@ -149,6 +149,39 @@ class ExploreSynthesizeTests(unittest.TestCase):
             stale_meta["sections_sha256"] = "changed"
             self.assertIsNone(explore.load_cached_report(report_path, meta_path, stale_meta))
 
+    def test_step7_uses_configured_model(self):
+        class FakeCompletions:
+            def __init__(self):
+                self.models = []
+
+            def create(self, **kwargs):
+                self.models.append(kwargs["model"])
+                content = "| A | B |\n|---|---|\n| x | y |"
+                if "DIAGRAM" in str(kwargs.get("messages", "")):
+                    content = "```mermaid\ngraph TD\nA-->B\n```"
+                return types.SimpleNamespace(
+                    choices=[types.SimpleNamespace(message=types.SimpleNamespace(content=content))]
+                )
+
+        class FakeClient:
+            def __init__(self, completions):
+                self.chat = types.SimpleNamespace(completions=completions)
+
+        completions = FakeCompletions()
+        original_call_json = explore.call_json
+        try:
+            explore.call_json = lambda client, system, user, model, max_tokens=4096, retries=2: {
+                "title": "T",
+                "row_dimension": "R",
+                "column_dimension": "C",
+                "cell_schema": "S",
+            }
+            explore.step7_summary(lambda: FakeClient(completions), "report", step7_model="custom-step7")
+            self.assertTrue(completions.models)
+            self.assertTrue(all(model == "custom-step7" for model in completions.models))
+        finally:
+            explore.call_json = original_call_json
+
 
 if __name__ == "__main__":
     unittest.main()

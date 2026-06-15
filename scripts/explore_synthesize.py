@@ -21,21 +21,19 @@ if sys.version_info < (3, 10):
     sys.exit(1)
 
 import argparse
-import itertools
 import json
-import os
 import threading
 from pathlib import Path
 
 # Add script directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from openai import OpenAI
 from zotero_reader import ZoteroReader
 
 # Import modular components
 STOP_AFTER_CHOICES = ("step1", "ver1", "step2", "step3", "step4")
 from llm_client import init_client_pool, get_client
+from config import get_api_key, get_base_url, get_model, get_step7_model, get_workers, get_zotero_dir, DEFAULT_PRO_MODEL
 from utils import should_stop_after, print_stop_after
 from caching import (
     OUTLINE_CACHE_VERSION,
@@ -90,8 +88,8 @@ def main():
     parser.add_argument("collection", nargs="+", help="Zotero 论文集路径（如 '主题 > 子集'，可多个）")
     parser.add_argument("--question", "-q", required=True, help="研究问题")
     parser.add_argument("--output", "-o", default="synthesize_output", help="输出目录")
-    parser.add_argument("--model", "-m", default="deepseek-v4-pro", help="模型名")
-    parser.add_argument("--workers", "-w", type=int, default=5, help="并发数")
+    parser.add_argument("--model", "-m", default=get_model(DEFAULT_PRO_MODEL), help="模型名")
+    parser.add_argument("--workers", "-w", type=int, default=get_workers(5), help="并发数")
     parser.add_argument("--cache-dir", help="文本缓存目录（默认 output/cache）")
     parser.add_argument("--max-papers", type=int, default=0, help="最大处理论文数（0=无限制）")
     parser.add_argument("--skip-step1", action="store_true", help="跳过Step1，从已有 findings 继续")
@@ -104,12 +102,13 @@ def main():
     parser.add_argument("--stop-after", choices=STOP_AFTER_CHOICES,
                         help="调试模式：在指定步骤完成后停止（step1/ver1/step2/step3/step4）")
     parser.add_argument("--api-key", "-k", help="DeepSeek API Key（或用 DEEPSEEK_API_KEY 环境变量）")
-    parser.add_argument("--base-url", help="API Base URL (默认: https://api.deepseek.com)")
-    parser.add_argument("--zotero-dir", help="Zotero 数据根目录（优先于环境变量）")
+    parser.add_argument("--base-url", default=get_base_url(), help="API Base URL (默认: https://api.deepseek.com)")
+    parser.add_argument("--step7-model", default=get_step7_model(), help="Step 7 表格/示意图模型")
+    parser.add_argument("--zotero-dir", default=get_zotero_dir(), help="Zotero 数据根目录（优先于环境变量）")
     args = parser.parse_args()
 
-    api_key = args.api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    base_url = args.base_url or "https://api.deepseek.com"
+    api_key = args.api_key or get_api_key()
+    base_url = args.base_url
     if not api_key:
         sys.exit("请设置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY 环境变量，或使用 --api-key / -k 参数")
 
@@ -345,7 +344,7 @@ def main():
     print(f"  📄 文章已保存: {article_path}", flush=True)
 
     # ── Step 7: 总结图表 ──
-    summary = step7_summary(client_factory, report)
+    summary = step7_summary(client_factory, report, step7_model=args.step7_model)
     if summary["table"]:
         table_path = output_dir / "table.md"
         table_path.write_text(summary["table"], encoding="utf-8")
@@ -430,4 +429,3 @@ if mod:
 
 if __name__ == "__main__":
     main()
-

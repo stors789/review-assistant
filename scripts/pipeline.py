@@ -669,7 +669,7 @@ def choose_table_view(views: list[dict]) -> dict:
     )
 
 
-def step7_summary(client_factory, report_text: str) -> dict:
+def step7_summary(client_factory, report_text: str, step7_model: str = "deepseek-v4-flash") -> dict:
     """Step 7: Concurrent generation of Markdown summary table and Mermaid diagram."""
     print(f"── Step 7: 生成总结图表 ──", flush=True)
     result = {"table": "", "diagram": ""}
@@ -678,7 +678,7 @@ def step7_summary(client_factory, report_text: str) -> dict:
         c = client_factory()
         # Propose views
         try:
-            raw_proposal = llm_client.call_json(c, "", STEP7_TABLE_VIEW_PROMPT.format(report=report_text), "deepseek-v4-flash", 8192)
+            raw_proposal = llm_client.call_json(c, "", STEP7_TABLE_VIEW_PROMPT.format(report=report_text), step7_model, 8192)
             views = normalize_table_views(raw_proposal)
             selected_view = choose_table_view(views)
             print(
@@ -687,7 +687,7 @@ def step7_summary(client_factory, report_text: str) -> dict:
                 flush=True,
             )
             resp = c.chat.completions.create(
-                model="deepseek-v4-flash",
+                model=step7_model,
                 messages=[{"role": "user", "content": STEP7_TABLE_PROMPT.format(
                     report=report_text,
                     table_view=json.dumps(selected_view, ensure_ascii=False, indent=2),
@@ -707,7 +707,7 @@ def step7_summary(client_factory, report_text: str) -> dict:
         c = client_factory()
         try:
             resp = c.chat.completions.create(
-                model="deepseek-v4-flash",
+                model=step7_model,
                 messages=[{"role": "user", "content": STEP7_DIAGRAM_PROMPT.format(report=report_text)}],
                 temperature=0,
                 max_tokens=8192,

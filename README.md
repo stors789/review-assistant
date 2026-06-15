@@ -210,6 +210,11 @@ python -m pip install -e .
 - `ZOTERO_DIR`: Custom Zotero data directory (defaults to `~/Zotero`).
 - `ZOTERO_LINKED_BASE_DIR`: Base directory to resolve Zotero linked files relative attachments (`attachments:relative/path.pdf`).
 - `AUTO_LIT_LOCK_DIR`: Custom directory to place the Semantic Scholar cross-process lock file.
+- `REVIEW_ASSISTANT_BASE_URL` / `DEEPSEEK_BASE_URL`: Default OpenAI-compatible API base URL.
+- `REVIEW_ASSISTANT_MODEL`: Default model for LLM-backed workflows.
+- `REVIEW_ASSISTANT_STEP7_MODEL`: Default model for synthesis table and Mermaid generation.
+- `REVIEW_ASSISTANT_WORKERS`: Default worker count for concurrent workflows.
+- `REVIEW_ASSISTANT_USE_PROXY=true`: Preserve system proxy variables instead of stripping/bypassing them.
 
 ## Testing
 

@@ -27,9 +27,11 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import quote
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import requests
 from zotero_reader import ZoteroReader
+from config import should_strip_proxy, get_zotero_dir
 
 SS_API = "https://api.semanticscholar.org/graph/v1/paper/search"
 SS_KEY = os.environ.get("SS_API_KEY", "")
@@ -268,8 +270,10 @@ def _search_ss(query: str, limit: int = 20) -> list[dict]:
 
     url = f"{SS_API}?query={quote(query)}&limit={limit}&fields={quote(SS_FIELDS)}"
     try:
-        r = requests.get(url, headers={"x-api-key": SS_KEY}, timeout=15,
-                         proxies={"http": None, "https": None})  # 绕过代理直连 SS
+        request_kwargs = {"headers": {"x-api-key": SS_KEY}, "timeout": 15}
+        if should_strip_proxy():
+            request_kwargs["proxies"] = {"http": None, "https": None}
+        r = requests.get(url, **request_kwargs)
         r.raise_for_status()
         return r.json().get("data", [])
     except Exception as e:
@@ -469,7 +473,7 @@ def main():
     parser.add_argument("--min-relevance", type=int, default=4, help="--screen 模式下最低相关性分数")
     parser.add_argument("--ss-api-key", help="Semantic Scholar API Key (或用 SS_API_KEY 环境变量)")
     parser.add_argument("--pubmed-api-key", help="PubMed API Key (或用 PUBMED_API_KEY / NCBI_API_KEY 环境变量)")
-    parser.add_argument("--zotero-dir", help="Zotero 数据根目录（优先于环境变量）")
+    parser.add_argument("--zotero-dir", default=get_zotero_dir(), help="Zotero 数据根目录（优先于环境变量）")
     parser.add_argument("--import-zotero", action="store_true", help="自动打开 Zotero 导入 RIS 文件（仅 macOS）")
     args = parser.parse_args()
 
