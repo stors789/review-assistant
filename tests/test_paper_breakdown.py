@@ -25,9 +25,9 @@ class PaperBreakdownTests(unittest.TestCase):
         self.assertEqual(res["year"], "2026")
         mock_client.chat.completions.create.assert_called_once()
 
-    @patch("paper_breakdown.OpenAI")
+    @patch("paper_breakdown.llm_client.get_client")
     @patch("paper_breakdown.extract_text")
-    def test_process_pdfs_writes_json_and_summary_csv(self, mock_extract, mock_openai):
+    def test_process_pdfs_writes_json_and_summary_csv(self, mock_extract, mock_get_client):
         # Setup mocks
         mock_extract.return_value = "extracted text contents"
         
@@ -37,7 +37,8 @@ class PaperBreakdownTests(unittest.TestCase):
             MagicMock(message=MagicMock(content='{"original_title": "Paper Title", "year": "2026", "authors": "John Smith"}'))
         ]
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
+        mock_get_client.return_value = mock_client
+
 
         with TemporaryDirectory() as tmp:
             tmp_dir = Path(tmp)

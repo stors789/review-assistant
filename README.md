@@ -23,15 +23,18 @@ It helps you move from a folder of papers to structured notes, claim verificatio
 List all collections and PDF coverage:
 
 ```bash
-cd ~/.agents/skills/review-assistant
-python3 scripts/zotero_read.py --list
+# Using CLI script:
+review-assistant-read --list
+
+# Or using direct python execution:
+python scripts/zotero_read.py --list
 ```
 
 Inspect one collection:
 
 ```bash
-python3 scripts/zotero_read.py "Collection > Subcollection"
-python3 scripts/zotero_read.py --pdf-only "Collection > Subcollection"
+review-assistant-read "Collection > Subcollection"
+review-assistant-read --pdf-only "Collection > Subcollection"
 ```
 
 ### 2. Break Down Papers
@@ -39,8 +42,8 @@ python3 scripts/zotero_read.py --pdf-only "Collection > Subcollection"
 Create structured JSON notes and a CSV summary from PDFs in a Zotero collection:
 
 ```bash
-source ~/Documents/api.env
-python3 scripts/paper_breakdown.py \
+# Set environment variables, then run:
+review-assistant-breakdown \
   -z "Collection > Subcollection" \
   -o ./paper_breakdown_output \
   -w 5
@@ -49,7 +52,7 @@ python3 scripts/paper_breakdown.py \
 You can also process a folder of PDFs:
 
 ```bash
-python3 scripts/paper_breakdown.py \
+review-assistant-breakdown \
   -i /path/to/pdfs \
   -o ./paper_breakdown_output
 ```
@@ -59,8 +62,7 @@ python3 scripts/paper_breakdown.py \
 Check whether a paragraph is supported by papers in a Zotero collection:
 
 ```bash
-source ~/Documents/api.env
-python3 scripts/claim_verify.py \
+review-assistant-verify \
   "Collection > Subcollection" \
   -p "Your review paragraph..." \
   -o claim_report.json
@@ -73,8 +75,7 @@ The report decomposes the paragraph into independent claims, matches each claim 
 Run the full review pipeline:
 
 ```bash
-source ~/Documents/api.env
-python3 scripts/explore_synthesize.py \
+review-assistant-synthesize \
   "Collection > Subcollection" \
   -q "What does this literature show about the research question?" \
   -o ./synthesize_output
@@ -84,11 +85,10 @@ The pipeline extracts findings from every available PDF, builds an outline, writ
 
 ### 5. Search And Import Literature
 
-Search Semantic Scholar and generate an RIS file for Zotero import:
+Search Semantic Scholar and generate an RIS file for Zotero import (default behavior generates the RIS file but does not auto-open Zotero unless `--import-zotero` is passed):
 
 ```bash
-source ~/Documents/api.env
-python3 scripts/auto_lit.py \
+review-assistant-autolit \
   "short English search query" \
   -c "Target Zotero Collection" \
   -t "topic-tag" \
@@ -96,6 +96,7 @@ python3 scripts/auto_lit.py \
 ```
 
 `auto_lit.py` uses DOI-based de-duplication against the local Zotero database when possible.
+
 
 ## Scripts
 
@@ -163,24 +164,55 @@ paper_breakdown_output/
 - DeepSeek or OpenAI-compatible API key
 - Semantic Scholar API key for search/import workflows
 
-Install Python dependencies:
+## Installation & Setup
+
+1. **Install Python dependencies:**
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-Load API keys before running API-backed workflows:
+Or install the package locally in editable mode so you can run the `review-assistant-*` commands directly from anywhere:
 
 ```bash
-source ~/Documents/api.env
+python -m pip install -e .
 ```
 
-Expected environment variables:
+2. **Load API keys / Environment variables:**
+
+- **On Unix (macOS/Linux):**
+  Create/load an environment file:
+  ```bash
+  export DEEPSEEK_API_KEY="your-key"
+  export SS_API_KEY="your-key"
+  ```
+  Or source a file: `source ~/Documents/api.env`
+
+- **On Windows (Command Prompt):**
+  ```cmd
+  set DEEPSEEK_API_KEY="your-key"
+  set SS_API_KEY="your-key"
+  ```
+
+- **On Windows (PowerShell):**
+  ```powershell
+  $env:DEEPSEEK_API_KEY="your-key"
+  $env:SS_API_KEY="your-key"
+  ```
+
+3. **Optional configurations:**
+- `ZOTERO_DIR`: Custom Zotero data directory (defaults to `~/Zotero`).
+- `ZOTERO_LINKED_BASE_DIR`: Base directory to resolve Zotero linked files relative attachments (`attachments:relative/path.pdf`).
+- `AUTO_LIT_LOCK_DIR`: Custom directory to place the Semantic Scholar cross-process lock file.
+
+## Testing
+
+To run the unit test suite:
 
 ```bash
-DEEPSEEK_API_KEY=...
-SS_API_KEY=...
+python -m unittest discover -s tests -v
 ```
+
 
 Optional:
 
@@ -209,9 +241,10 @@ Additional DeepSeek keys are auto-detected by the synthesis pipeline for key rot
 
 ## Troubleshooting
 
-- **`No module named ...`**: install dependencies with `pip install -r requirements.txt`.
-- **No PDFs found**: run `scripts/zotero_read.py --list` and confirm the collection path and PDF coverage.
-- **API key missing**: run `source ~/Documents/api.env` and confirm the key is exported.
+- **`No module named ...`**: install dependencies with `python -m pip install -r requirements.txt`.
+- **No PDFs found**: run `review-assistant-read --list` and confirm the collection path and PDF coverage.
+- **API key missing**: confirm that the key is exported in your environment.
+
 - **Semantic Scholar 429**: reduce search frequency or shorten the query.
 - **Poor PDF extraction**: OCR the PDF and rerun the workflow.
 

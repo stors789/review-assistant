@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """简单查询 Zotero 论文集的 PDF 路径（CLI 工具）。"""
+import sys
+if sys.version_info < (3, 10):
+    sys.stderr.write("Error: review-assistant requires Python 3.10 or higher.\n")
+    sys.exit(1)
+
 import argparse
 from zotero_reader import ZoteroReader
+
 
 
 def main():
@@ -9,9 +15,10 @@ def main():
     parser.add_argument("collection", nargs="?", help="论文集名称（不指定则列出全部）")
     parser.add_argument("--list", "-l", action="store_true", help="列出所有论文集概览")
     parser.add_argument("--pdf-only", action="store_true", help="只显示有 PDF 的文献")
+    parser.add_argument("--zotero-dir", help="Zotero 数据根目录（优先于环境变量）")
     args = parser.parse_args()
 
-    with ZoteroReader() as reader:
+    with ZoteroReader(zotero_dir=args.zotero_dir) as reader:
         if args.list or not args.collection:
             cols = reader.list_collections()
             print(f"{'论文集':<20} {'总数':>5} {'有PDF':>5} {'缺PDF':>5}")

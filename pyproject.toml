@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "review-assistant"
+version = "0.2.0"
+description = "Zotero Literature Review Assistant"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "PyMuPDF>=1.24.0",
+    "openai>=1.0.0",
+    "requests>=2.31.0",
+]
+
+[project.scripts]
+review-assistant-read = "zotero_read:main"
+review-assistant-verify = "claim_verify:main"
+review-assistant-breakdown = "paper_breakdown:main"
+review-assistant-synthesize = "explore_synthesize:main"
+review-assistant-autolit = "auto_lit:main"
+
+[tool.setuptools]
+package-dir = {"" = "scripts"}
+py-modules = [
+    "zotero_reader",
+    "zotero_read",
+    "claim_verify",
+    "paper_breakdown",
+    "explore_synthesize",
+    "auto_lit",
+    "llm_client",
+    "pipeline",
+    "utils",
+    "caching",
+    "prompts",
+    "verification",
+    "evidence_pack"
+]

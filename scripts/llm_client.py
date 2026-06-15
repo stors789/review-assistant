@@ -15,26 +15,32 @@ _key_lock = threading.Lock()
 _base_url = "https://api.deepseek.com"
 
 
-def init_client_pool(base_url="https://api.deepseek.com"):
+def init_client_pool(base_url="https://api.deepseek.com", api_key=None):
     """Initialize the rotation key pool and clear proxy settings."""
     global _key_cycle, _base_url
     _base_url = base_url
 
     # Strip proxy variables to bypass local proxies
-    for v in ("all_proxy", "ALL_PROXY", "socks_proxy", "SOCKS_PROXY", "socks5_proxy", "SOCKS5_PROXY"):
+    for v in (
+        "all_proxy", "ALL_PROXY", "socks_proxy", "SOCKS_PROXY", "socks5_proxy", "SOCKS5_PROXY",
+        "http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY"
+    ):
         os.environ.pop(v, None)
 
-    api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("请设置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY")
+    if api_key:
+        api_keys = [api_key]
+    else:
+        api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("请设置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY")
 
-    api_keys = [api_key]
-    for i in range(2, 20):
-        k = os.environ.get(f"DEEPSEEK_API_KEY_{i}")
-        if k:
-            api_keys.append(k)
-        else:
-            break
+        api_keys = [api_key]
+        for i in range(2, 20):
+            k = os.environ.get(f"DEEPSEEK_API_KEY_{i}")
+            if k:
+                api_keys.append(k)
+            else:
+                break
 
     _key_cycle = itertools.cycle(api_keys)
 
@@ -54,17 +60,41 @@ def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: in
     last_err = None
     for attempt in range(retries + 1):
         try:
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                temperature=0,
-                max_tokens=max_tokens,
-                reasoning_effort="high",
-                extra_body={"thinking": {"type": "enabled"}},
-            )
+                "temperature": 0,
+                "max_tokens": max_tokens,
+            }
+            # Only add reasoning parameters if model name indicates reasoning capability
+            is_openai_reasoning = any(x in model.lower() for x in ("o1", "o3"))
+            is_deepseek_reasoning = any(x in model.lower() for x in ("reasoner", "r1", "pro"))
+            
+            if is_openai_reasoning:
+                kwargs["reasoning_effort"] = "high"
+                if "temperature" in kwargs:
+                    del kwargs["temperature"]
+            elif is_deepseek_reasoning:
+                kwargs["reasoning_effort"] = "high"
+                kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+
+            try:
+                resp = client.chat.completions.create(**kwargs)
+            except Exception as e:
+                err_msg = str(e).lower()
+                # If provider does not support these extra parameters, strip them and retry immediately
+                if any(p in err_msg for p in ("extra_body", "thinking", "reasoning_effort", "unrecognized", "unknown parameter", "extra parameter", "unexpected keyword")):
+                    kwargs.pop("reasoning_effort", None)
+                    kwargs.pop("extra_body", None)
+                    if "temperature" not in kwargs:
+                        kwargs["temperature"] = 0
+                    resp = client.chat.completions.create(**kwargs)
+                else:
+                    raise
+
             content = resp.choices[0].message.content
             if not content or not content.strip():
                 raise ValueError("API returned empty response")
@@ -126,14 +156,38 @@ def call_text(client: OpenAI, prompt: str, model: str, max_tokens: int = 4096, r
     last_err = None
     for attempt in range(retries + 1):
         try:
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
-                max_tokens=max_tokens,
-                reasoning_effort="high",
-                extra_body={"thinking": {"type": "enabled"}},
-            )
+            kwargs = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+            # Only add reasoning parameters if model name indicates reasoning capability
+            is_openai_reasoning = any(x in model.lower() for x in ("o1", "o3"))
+            is_deepseek_reasoning = any(x in model.lower() for x in ("reasoner", "r1", "pro"))
+
+            if is_openai_reasoning:
+                kwargs["reasoning_effort"] = "high"
+                if "temperature" in kwargs:
+                    del kwargs["temperature"]
+            elif is_deepseek_reasoning:
+                kwargs["reasoning_effort"] = "high"
+                kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+
+            try:
+                resp = client.chat.completions.create(**kwargs)
+            except Exception as e:
+                err_msg = str(e).lower()
+                # If provider does not support these extra parameters, strip them and retry immediately
+                if any(p in err_msg for p in ("extra_body", "thinking", "reasoning_effort", "unrecognized", "unknown parameter", "extra parameter", "unexpected keyword")):
+                    kwargs.pop("reasoning_effort", None)
+                    kwargs.pop("extra_body", None)
+                    if "temperature" not in kwargs:
+                        kwargs["temperature"] = temperature
+                    resp = client.chat.completions.create(**kwargs)
+                else:
+                    raise
+
             content = resp.choices[0].message.content
             if not content or not content.strip():
                 raise ValueError("API returned empty response")

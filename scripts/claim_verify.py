@@ -9,6 +9,10 @@
   4. 逐一验证每条主张是否得到原文支持
   5. 生成验证报告（JSON + Markdown 摘要）
 """
+import sys
+if sys.version_info < (3, 10):
+    sys.stderr.write("Error: review-assistant requires Python 3.10 or higher.\n")
+    sys.exit(1)
 
 import argparse
 import json
@@ -115,11 +119,15 @@ def main():
     parser.add_argument("--model", "-m", default="deepseek-v4-flash")
     parser.add_argument("--output", "-o", help="输出 JSON 报告路径")
     parser.add_argument("--top", type=int, default=3, help="每条主张最多验证的论文数")
+    parser.add_argument("--api-key", "-k", help="DeepSeek API Key（或用 DEEPSEEK_API_KEY 环境变量）")
+    parser.add_argument("--base-url", help="API Base URL (默认: https://api.deepseek.com)")
+    parser.add_argument("--zotero-dir", help="Zotero 数据根目录（优先于环境变量）")
     args = parser.parse_args()
 
-    api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    api_key = args.api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    base_url = args.base_url or "https://api.deepseek.com"
     if not api_key:
-        sys.exit("请设置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY")
+        sys.exit("请设置 OPENAI_API_KEY/DEEPSEEK_API_KEY 环境变量，或用 --api-key / -k 指定")
 
     if args.file:
         paragraph = Path(args.file).read_text(encoding="utf-8")
@@ -131,11 +139,12 @@ def main():
     if not paragraph.strip():
         sys.exit("未提供段落文本")
 
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    llm_client.init_client_pool(base_url=base_url, api_key=api_key)
+    client = llm_client.get_client()
 
     # ── Step 1: 从 Zotero 获取论文集 ──
     print(f"📚 Zotero「{args.collection}」", flush=True)
-    with ZoteroReader() as reader:
+    with ZoteroReader(zotero_dir=args.zotero_dir) as reader:
         papers = reader.get_papers(args.collection)
     if not papers:
         sys.exit(f"论文集没有可用的 PDF")

@@ -14,6 +14,9 @@ def extract_pdf_text(pdf_path: Path) -> str:
     doc = pymupdf.open(str(pdf_path))
     text = "\n\n".join(page.get_text() for page in doc if page.get_text().strip())
     doc.close()
+    if not text.strip():
+        print(f"  ⚠ 警告: 无法从 PDF 中提取出任何文本(字符数为 0): {pdf_path.name}\n"
+              f"      该文件可能为扫描版（无文字层）或已加密，建议先使用 OCR 工具转出文本层或解锁后再重试。", flush=True)
     return text
 
 

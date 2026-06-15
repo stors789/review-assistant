@@ -11,7 +11,7 @@ from tempfile import NamedTemporaryFile
 class ZoteroReader:
     def __init__(self, zotero_dir: str | None = None):
         if zotero_dir is None:
-            zotero_dir = os.path.expanduser("~/Zotero")
+            zotero_dir = os.environ.get("ZOTERO_DIR") or os.path.expanduser("~/Zotero")
         self.zotero_dir = Path(zotero_dir)
         self.db_path = self.zotero_dir / "zotero.sqlite"
         self._tmp_path: str | None = None
@@ -59,6 +59,43 @@ class ZoteroReader:
             except OSError:
                 pass
             self._tmp_path = None
+
+    def _resolve_pdf_path(self, pdf_key: str, path: str) -> Path | None:
+        """Resolve the actual physical file path of a Zotero PDF attachment."""
+        if not path:
+            return None
+
+        # Normalize Windows backslashes to forward slashes
+        path = path.replace("\\", "/")
+
+
+        # 1. Stored File (storage:filename.pdf)
+        if path.startswith("storage:"):
+            filename = path.replace("storage:", "", 1)
+            full = self.zotero_dir / "storage" / pdf_key / filename
+            if full.exists():
+                return full
+            return None
+
+        # 2. Linked File (attachments:relative/path.pdf)
+        if path.startswith("attachments:"):
+            filename = path.replace("attachments:", "", 1)
+            base_dir = os.environ.get("ZOTERO_LINKED_BASE_DIR")
+            if base_dir:
+                full = Path(base_dir) / filename
+                if full.exists():
+                    return full
+            return None
+
+        # 3. Absolute path (e.g. /path/to/file.pdf or C:\path\to\file.pdf)
+        try:
+            full = Path(path)
+            if full.is_absolute() and full.exists():
+                return full
+        except Exception:
+            pass
+
+        return None
 
     def _query(self, sql: str, params=None):
         return self._conn.execute(sql, params or []).fetchall()
@@ -163,11 +200,9 @@ class ZoteroReader:
 
         exists: set[int] = set()
         for parent_id, pdf_key, path in pdf_rows:
-            if path and path.startswith("storage:"):
-                filename = path.replace("storage:", "", 1)
-                full = self.zotero_dir / "storage" / pdf_key / filename
-                if full.exists():
-                    exists.add(parent_id)
+            full = self._resolve_pdf_path(pdf_key, path)
+            if full:
+                exists.add(parent_id)
 
         # 4. 统计每个集合
         results = []
@@ -262,11 +297,9 @@ class ZoteroReader:
 
         pdf_map: dict[int, str] = {}
         for parent_id, pdf_key, path in pdf_rows:
-            if path and path.startswith("storage:"):
-                filename = path.replace("storage:", "", 1)
-                full = self.zotero_dir / "storage" / pdf_key / filename
-                if full.exists():
-                    pdf_map[parent_id] = str(full)
+            full = self._resolve_pdf_path(pdf_key, path)
+            if full:
+                pdf_map[parent_id] = str(full)
 
         def strip_html(text: str) -> str:
             return re.sub(r"<[^>]+>", "", text).strip() if text else ""

@@ -5,6 +5,11 @@ auto_lit: 自然语言 → Semantic Scholar 搜索 → 生成 RIS 文件供 Zote
 用法: python3 scripts/auto_lit.py "<英文关键词>" -o output.ris [-n 20]
 """
 
+import sys
+if sys.version_info < (3, 10):
+    sys.stderr.write("Error: review-assistant requires Python 3.10 or higher.\n")
+    sys.exit(1)
+
 import argparse
 try:
     import fcntl
@@ -18,7 +23,6 @@ except ImportError:
 import os
 import re
 import subprocess
-import sys
 import time
 import uuid
 from pathlib import Path
@@ -36,8 +40,23 @@ PUBMED_FETCH_API = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 PUBMED_KEY = os.environ.get("PUBMED_API_KEY", "") or os.environ.get("NCBI_API_KEY", "")
 
 from datetime import datetime
-_SS_LOCK_FILE = Path.home() / ".auto_lit_ss_lock.txt"
+
+def _get_ss_lock_file() -> Path:
+    lock_dir_env = os.environ.get("AUTO_LIT_LOCK_DIR")
+    if lock_dir_env:
+        return Path(lock_dir_env) / ".auto_lit_ss_lock.txt"
+    try:
+        home = Path.home()
+        if home.is_dir() and os.access(home, os.W_OK):
+            return home / ".auto_lit_ss_lock.txt"
+    except Exception:
+        pass
+    import tempfile
+    return Path(tempfile.gettempdir()) / ".auto_lit_ss_lock.txt"
+
+_SS_LOCK_FILE = _get_ss_lock_file()
 CURRENT_YEAR = datetime.now().year
+
 
 CORE_TERMS = {
     "theta", "theta-band", "theta band", "theta power", "theta rhythm", "theta rhythms",
@@ -258,10 +277,10 @@ def _search_ss(query: str, limit: int = 20) -> list[dict]:
         return []
 
 
-def _get_existing_dois() -> set[str]:
+def _get_existing_dois(zotero_dir=None) -> set[str]:
     """从 Zotero 数据库获取已有 DOI，用于去重。"""
     try:
-        with ZoteroReader() as r:
+        with ZoteroReader(zotero_dir=zotero_dir) as r:
             rows = r._query(
                 "SELECT v.value FROM itemDataValues v "
                 "JOIN itemData d ON d.valueID = v.valueID "
@@ -448,7 +467,18 @@ def main():
     parser.add_argument("-s", "--source", choices=["ss", "pubmed"], default="ss", help="文献检索源，支持 ss (Semantic Scholar) 或 pubmed (PubMed)")
     parser.add_argument("--screen", action="store_true", help="按标题/摘要做年份感知相关性筛选")
     parser.add_argument("--min-relevance", type=int, default=4, help="--screen 模式下最低相关性分数")
+    parser.add_argument("--ss-api-key", help="Semantic Scholar API Key (或用 SS_API_KEY 环境变量)")
+    parser.add_argument("--pubmed-api-key", help="PubMed API Key (或用 PUBMED_API_KEY / NCBI_API_KEY 环境变量)")
+    parser.add_argument("--zotero-dir", help="Zotero 数据根目录（优先于环境变量）")
+    parser.add_argument("--import-zotero", action="store_true", help="自动打开 Zotero 导入 RIS 文件（仅 macOS）")
     args = parser.parse_args()
+
+
+    global SS_KEY, PUBMED_KEY
+    if args.ss_api_key:
+        SS_KEY = args.ss_api_key
+    if args.pubmed_api_key:
+        PUBMED_KEY = args.pubmed_api_key
 
     output = Path(args.output) if args.output else Path(f"lit_{args.tag or uuid.uuid4().hex[:8]}.ris")
 
@@ -458,7 +488,7 @@ def main():
         print("❌ 未找到匹配文献", flush=True)
         return
 
-    existing = _get_existing_dois()
+    existing = _get_existing_dois(zotero_dir=args.zotero_dir)
     entries = []
     skipped = 0
     for i, paper in enumerate(papers, 1):
@@ -503,8 +533,12 @@ def main():
 
     # 自动导入 Zotero
     col_hint = f" → 选「{args.collection}」" if args.collection else ""
-    if not _try_import_ris(str(output)):
+    if args.import_zotero:
+        if not _try_import_ris(str(output)):
+            print(f"💡 双击 {output} 或用 Zotero → File → Import{col_hint}", flush=True)
+    else:
         print(f"💡 双击 {output} 或用 Zotero → File → Import{col_hint}", flush=True)
+
 
 
 if __name__ == "__main__":

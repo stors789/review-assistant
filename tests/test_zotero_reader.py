@@ -159,5 +159,50 @@ class ZoteroReaderTests(unittest.TestCase):
             papers = reader.get_papers("Theme > Subtheme")
             self.assertEqual(len(papers), 1)
 
+    def test_resolve_pdf_path_cross_platform(self):
+        with ZoteroReader(str(self.zotero_path)) as reader:
+            # 1. Stored File
+            storage_file = self.zotero_path / "storage" / "KEY1" / "test.pdf"
+            storage_file.parent.mkdir(parents=True, exist_ok=True)
+            storage_file.write_bytes(b"data")
+            res = reader._resolve_pdf_path("KEY1", "storage:test.pdf")
+            self.assertEqual(res, storage_file)
+
+            # 2. Unix Absolute Path
+            abs_file = (self.zotero_path / "abs_test.pdf").resolve()
+            abs_file.write_bytes(b"data")
+            res = reader._resolve_pdf_path("KEY1", str(abs_file))
+            self.assertEqual(res, abs_file)
+
+            # 3. Linked File (forward slash)
+            linked_dir = self.zotero_path / "linked"
+            linked_file = linked_dir / "subdir" / "test.pdf"
+            linked_file.parent.mkdir(parents=True, exist_ok=True)
+            linked_file.write_bytes(b"data")
+            
+            os.environ["ZOTERO_LINKED_BASE_DIR"] = str(linked_dir)
+            try:
+                res = reader._resolve_pdf_path("KEY1", "attachments:subdir/test.pdf")
+                self.assertEqual(res, linked_file)
+
+                # 4. Linked File (Windows backslash)
+                res = reader._resolve_pdf_path("KEY1", "attachments:subdir\\test.pdf")
+                self.assertEqual(res, linked_file)
+            finally:
+                os.environ.pop("ZOTERO_LINKED_BASE_DIR", None)
+
+            # 5. Windows Style Absolute Path (mocked environment)
+            from unittest.mock import patch, MagicMock
+            with patch('zotero_reader.Path') as mock_path_cls:
+                mock_path_instance = MagicMock()
+                mock_path_instance.is_absolute.return_value = True
+                mock_path_instance.exists.return_value = True
+                mock_path_cls.return_value = mock_path_instance
+                
+                res = reader._resolve_pdf_path("KEY1", "C:\\path\\to\\file.pdf")
+                mock_path_cls.assert_called_with("C:/path/to/file.pdf")
+                self.assertEqual(res, mock_path_instance)
+
 if __name__ == "__main__":
     unittest.main()
+

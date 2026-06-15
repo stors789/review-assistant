@@ -15,12 +15,15 @@
   Step 6: （如有验证问题）修正报告后重新生成文章
   Step 7: 生成总结表格 + 示意图
 """
+import sys
+if sys.version_info < (3, 10):
+    sys.stderr.write("Error: review-assistant requires Python 3.10 or higher.\n")
+    sys.exit(1)
 
 import argparse
 import itertools
 import json
 import os
-import sys
 import threading
 from pathlib import Path
 
@@ -100,37 +103,24 @@ def main():
     parser.add_argument("--max-fix-passes", type=int, default=2, help="修正报告的最大轮数（默认2）")
     parser.add_argument("--stop-after", choices=STOP_AFTER_CHOICES,
                         help="调试模式：在指定步骤完成后停止（step1/ver1/step2/step3/step4）")
+    parser.add_argument("--api-key", "-k", help="DeepSeek API Key（或用 DEEPSEEK_API_KEY 环境变量）")
+    parser.add_argument("--base-url", help="API Base URL (默认: https://api.deepseek.com)")
+    parser.add_argument("--zotero-dir", help="Zotero 数据根目录（优先于环境变量）")
     args = parser.parse_args()
 
-    api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    api_key = args.api_key or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    base_url = args.base_url or "https://api.deepseek.com"
     if not api_key:
-        sys.exit("请设置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY")
+        sys.exit("请设置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY 环境变量，或使用 --api-key / -k 参数")
 
-    api_keys = [api_key]
-    for i in range(2, 20):
-        k = os.environ.get(f"DEEPSEEK_API_KEY_{i}")
-        if k:
-            api_keys.append(k)
-        else:
-            break
-
-    base_url = "https://api.deepseek.com"
     output_dir = Path(args.output).resolve()
     cache_dir = Path(args.cache_dir) if args.cache_dir else output_dir / "cache"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup client pool
-    init_client_pool(base_url)
+    init_client_pool(base_url, api_key=api_key)
 
-    _key_cycle = itertools.cycle(api_keys)
-    _key_lock = threading.Lock()
-
-    def _client_factory():
-        with _key_lock:
-            key = next(_key_cycle)
-        return OpenAI(api_key=key, base_url=base_url)
-
-    client_factory = _client_factory
+    client_factory = get_client
     client = client_factory()
 
     # ── 获取论文集 ──
@@ -138,7 +128,7 @@ def main():
     all_papers = []
     for col in args.collection:
         print(f"📚 Zotero「{col}」", flush=True)
-        with ZoteroReader() as reader:
+        with ZoteroReader(zotero_dir=args.zotero_dir) as reader:
             papers = reader.get_papers(col)
         n_new = 0
         for p in papers:
