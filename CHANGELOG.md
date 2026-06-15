@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 - **Comprehensive Cross-Platform Path Resolution Testing**: Added a thorough integration and unit test suite `test_resolve_pdf_path_cross_platform` in `tests/test_zotero_reader.py` covering stored files, absolute paths, forward slash and Windows backslash linked files (coupled with `ZOTERO_LINKED_BASE_DIR`), and simulated Windows absolute paths.
 - **Explicit Zotero Import Trigger**: Added the `--import-zotero` command-line argument to `auto_lit.py` to make RIS auto-importing on macOS strictly optional, defaulting to non-import to maximize compatibility in CI, server, and headless settings.
 - **Flexible Lock File Configuration**: Added `AUTO_LIT_LOCK_DIR` environment variable support for `auto_lit.py` to specify where the Semantic Scholar rate limit lock file should be created. The system now also tests home directory writability before saving the lock file and falls back gracefully to the system temporary folder if the home directory is read-only.
-- **Optional Environment Configurations**: Documented `ZOTERO_DIR`, `ZOTERO_LINKED_BASE_DIR`, and `AUTO_LIT_LOCK_DIR` inside `README.md` and `SKILL.md`.
+- **Optional Environment Configurations**: Documented `ZOTERO_DIR`, `ZOTERO_LINKED_BASE_DIR`, `AUTO_LIT_LOCK_DIR`, and `PUBMED_API_KEY` / `NCBI_API_KEY` inside `README.md` and `SKILL.md`.
 
 ### Changed
 - **Unified CLI Entrypoints**: Standardized documentation (README and SKILL) to use `python` instead of `python3`, and introduced support for local installation (`python -m pip install -e .`) followed by directly running console commands (`review-assistant-read`, `review-assistant-breakdown`, etc.) from any directory.

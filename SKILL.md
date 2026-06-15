@@ -22,7 +22,7 @@ description: 综述助手。用途：①Zotero数据库查询与统计；②从Z
 
 运行任何能力前，确认以下条件全部满足：
 
-1. **API Key**：已配置并导出相关 API 密钥（如 `DEEPSEEK_API_KEY`、`SS_API_KEY`）
+1. **API Key**：已配置并导出相关 API 密钥（如 `DEEPSEEK_API_KEY`、`SS_API_KEY`、`PUBMED_API_KEY`）
 2. **Zotero 不需要关闭**：`ZoteroReader` 自动复制 SQLite 到临时文件读取，不影响 Zotero 正常运行
 3. **输出目录可写**：`-o` 指定的目录有写入权限
 4. **Python 依赖安装**：`python -m pip install -r requirements.txt` 或本地可编辑安装 `python -m pip install -e .`
@@ -334,7 +334,8 @@ JSON 报告包含每条主张的逐篇验证详情，终端同时输出 Markdown
 
 所有脚本需要 `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY` 环境变量。
 
-- **Unix Shell**: `export DEEPSEEK_API_KEY="your-key"` 或 `source ~/Documents/api.env`
-- **Windows Cmd**: `set DEEPSEEK_API_KEY="your-key"`
-- **Windows PowerShell**: `$env:DEEPSEEK_API_KEY="your-key"`
+- **Unix Shell**: `export DEEPSEEK_API_KEY="your-key" && export SS_API_KEY="your-key" && export PUBMED_API_KEY="your-key"` 或 `source ~/Documents/api.env`
+- **Windows Cmd**: `set DEEPSEEK_API_KEY="your-key"` 且 `set SS_API_KEY="your-key"` 且 `set PUBMED_API_KEY="your-key"`
+- **Windows PowerShell**: `$env:DEEPSEEK_API_KEY="your-key"`; `$env:SS_API_KEY="your-key"`; `$env:PUBMED_API_KEY="your-key"`
+
 

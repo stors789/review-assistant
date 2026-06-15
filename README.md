@@ -163,6 +163,8 @@ paper_breakdown_output/
 - Local PDF attachments for full-text workflows
 - DeepSeek or OpenAI-compatible API key
 - Semantic Scholar API key for search/import workflows
+- PubMed API key / NCBI API key (optional, for higher rate limits)
+
 
 ## Installation & Setup
 
@@ -185,6 +187,7 @@ python -m pip install -e .
   ```bash
   export DEEPSEEK_API_KEY="your-key"
   export SS_API_KEY="your-key"
+  export PUBMED_API_KEY="your-key"  # Optional: for PubMed search limit
   ```
   Or source a file: `source ~/Documents/api.env`
 
@@ -192,13 +195,16 @@ python -m pip install -e .
   ```cmd
   set DEEPSEEK_API_KEY="your-key"
   set SS_API_KEY="your-key"
+  set PUBMED_API_KEY="your-key"
   ```
 
 - **On Windows (PowerShell):**
   ```powershell
   $env:DEEPSEEK_API_KEY="your-key"
   $env:SS_API_KEY="your-key"
+  $env:PUBMED_API_KEY="your-key"
   ```
+
 
 3. **Optional configurations:**
 - `ZOTERO_DIR`: Custom Zotero data directory (defaults to `~/Zotero`).
