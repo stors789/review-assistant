@@ -30,6 +30,7 @@ review-assistant-autolit = "auto_lit:main"
 package-dir = {"" = "scripts"}
 py-modules = [
     "zotero_reader",
+    "zotero_web",
     "zotero_read",
     "claim_verify",
     "paper_breakdown",

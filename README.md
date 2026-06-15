@@ -85,7 +85,7 @@ The pipeline extracts findings from every available PDF, builds an outline, writ
 
 ### 5. Search And Import Literature
 
-Search Semantic Scholar and generate an RIS file for Zotero import (default behavior generates the RIS file but does not auto-open Zotero unless `--import-zotero` is passed):
+Search Semantic Scholar and import into Zotero. The default behavior generates an RIS file; `--web-import` writes directly through the Zotero Web API and can wait for Zotero Desktop to sync locally:
 
 ```bash
 review-assistant-autolit \
@@ -93,6 +93,18 @@ review-assistant-autolit \
   -c "Target Zotero Collection" \
   -t "topic-tag" \
   -n 10
+```
+
+Direct Web API import:
+
+```bash
+review-assistant-autolit \
+  "short English search query" \
+  --web-import \
+  --zotero-library-type user \
+  --zotero-library-id "<your-user-id>" \
+  -c "Parent > Child Collection" \
+  -t "topic-tag"
 ```
 
 `auto_lit.py` uses DOI-based de-duplication against the local Zotero database when possible.
@@ -210,6 +222,11 @@ python -m pip install -e .
 - `ZOTERO_DIR`: Custom Zotero data directory (defaults to `~/Zotero`).
 - `ZOTERO_LINKED_BASE_DIR`: Base directory to resolve Zotero linked files relative attachments (`attachments:relative/path.pdf`).
 - `AUTO_LIT_LOCK_DIR`: Custom directory to place the Semantic Scholar cross-process lock file.
+- `ZOTERO_API_KEY`: Zotero Web API key with write permission.
+- `ZOTERO_LIBRARY_TYPE`: Zotero Web API library type, `user` or `group`.
+- `ZOTERO_LIBRARY_ID`: Zotero user ID or group ID.
+- `ZOTERO_WEB_IMPORT`: Set to `true` to use Web API import by default.
+- `ZOTERO_SYNC_TIMEOUT`: Seconds to wait for local Zotero Desktop sync after Web API import.
 - `REVIEW_ASSISTANT_BASE_URL` / `DEEPSEEK_BASE_URL`: Default OpenAI-compatible API base URL.
 - `REVIEW_ASSISTANT_MODEL`: Default model for LLM-backed workflows.
 - `REVIEW_ASSISTANT_STEP7_MODEL`: Default model for synthesis table and Mermaid generation.

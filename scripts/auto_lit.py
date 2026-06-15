@@ -31,7 +31,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import requests
 from zotero_reader import ZoteroReader
-from config import should_strip_proxy, get_zotero_dir
+from config import (
+    should_strip_proxy,
+    get_zotero_dir,
+    get_zotero_api_key,
+    get_zotero_library_type,
+    get_zotero_library_id,
+    get_zotero_web_import,
+    get_zotero_sync_timeout,
+)
+from zotero_web import ZoteroWebClient, ZoteroWebError, wait_for_local_dois
 
 SS_API = "https://api.semanticscholar.org/graph/v1/paper/search"
 SS_KEY = os.environ.get("SS_API_KEY", "")
@@ -296,6 +305,10 @@ def _get_existing_dois(zotero_dir=None) -> set[str]:
         return set()
 
 
+def _paper_doi(paper: dict) -> str:
+    return (paper.get("externalIds", {}) or {}).get("DOI", "").strip().lower()
+
+
 def _text_blob(paper: dict) -> str:
     journal = paper.get("journal", {}) or {}
     jname = journal.get("name", "") if isinstance(journal, dict) else str(journal)
@@ -404,6 +417,52 @@ def _screen_tag(base_tag: str, screen: dict) -> str:
     return "; ".join(parts)
 
 
+def _candidate_tag_parts(tag: str) -> list[str]:
+    return [part.strip() for part in tag.split(";") if part.strip()]
+
+
+def _filter_candidates(papers: list[dict], args, existing: set[str]) -> tuple[list[dict], int]:
+    selected = []
+    skipped = 0
+    seen_dois = set()
+    for paper in papers:
+        doi = _paper_doi(paper)
+        if doi and (doi in existing or doi in seen_dois):
+            print(f"  ⏭ 跳过: {paper.get('title','?')[:70]} (已有/重复)", flush=True)
+            skipped += 1
+            continue
+        if doi:
+            seen_dois.add(doi)
+        cites = paper.get("citationCount", 0) or 0
+        if not args.screen and args.min_citations and cites < args.min_citations:
+            print(f"  ⏭ 跳过: {paper.get('title','?')[:60]} ({cites}引用, 低于{args.min_citations})", flush=True)
+            skipped += 1
+            continue
+        tag = args.tag
+        if args.screen:
+            screen = screen_paper(paper, args.min_relevance)
+            reason = "; ".join(screen["reasons"]) or "no screen signals"
+            if not screen["keep"]:
+                print(
+                    f"  ⏭ 跳过: {paper.get('title','?')[:60]} "
+                    f"(screen:{screen['tier']} score={screen['score']}; {reason})",
+                    flush=True,
+                )
+                skipped += 1
+                continue
+            tag = _screen_tag(args.tag, screen)
+            print(
+                f"  ✅ 保留: {paper.get('title','?')[:60]} "
+                f"(screen:{screen['tier']} score={screen['score']}; {reason})",
+                flush=True,
+            )
+        item = dict(paper)
+        item["_zotero_tag"] = tag
+        item["_zotero_tags"] = _candidate_tag_parts(tag)
+        selected.append(item)
+    return selected, skipped
+
+
 def _to_ris(paper: dict, idx: int, tag: str = "") -> str:
     """将 SS/PubMed 论文转为 RIS 条目。"""
     ext = paper.get("externalIds", {})
@@ -460,6 +519,78 @@ def _try_import_ris(ris_path: str) -> bool:
         return False
 
 
+def _web_import(args, papers: list[dict], skipped: int = 0) -> bool:
+    api_key = args.zotero_api_key or get_zotero_api_key()
+    library_type = args.zotero_library_type or get_zotero_library_type()
+    library_id = args.zotero_library_id or get_zotero_library_id()
+    if not api_key or not library_type or not library_id:
+        raise SystemExit("请配置 ZOTERO_API_KEY, ZOTERO_LIBRARY_TYPE, ZOTERO_LIBRARY_ID，或用 CLI 参数指定")
+    if not args.collection and not args.collection_key:
+        raise SystemExit("Web import 需要 -c/--collection 或 --collection-key 指定目标 Zotero collection")
+
+    client = ZoteroWebClient(api_key=api_key, library_type=library_type, library_id=library_id)
+    if args.collection_key:
+        collection_key = args.collection_key
+        print(f"📁 使用 collection key: {collection_key}", flush=True)
+    else:
+        print(f"📁 目标 collection: {args.collection}", flush=True)
+        collection_key = client.ensure_collection_path(args.collection, create=args.create_collection)
+        print(f"   collection key: {collection_key}", flush=True)
+
+    candidates = []
+    seen = set()
+    for paper in papers:
+        doi = _paper_doi(paper)
+        if doi and doi in seen:
+            print(f"  ⏭ 跳过: {paper.get('title','?')[:70]} (本轮重复)", flush=True)
+            skipped += 1
+            continue
+        seen.add(doi)
+        candidates.append(paper)
+
+    web_existing = client.find_existing_dois({_paper_doi(p) for p in candidates})
+    new_papers = []
+    skipped_web = 0
+    for paper in candidates:
+        doi = _paper_doi(paper)
+        if doi and doi in web_existing:
+            print(f"  ⏭ 跳过: {paper.get('title','?')[:70]} (Web 已有)", flush=True)
+            skipped_web += 1
+            continue
+        new_papers.append(paper)
+
+    if not new_papers:
+        print("❌ 所有文献已在 Zotero 中", flush=True)
+        return False
+
+    result = client.create_items(new_papers, collection_key, _candidate_tag_parts(args.tag))
+    ok = len(result.get("successful", {}))
+    failed = result.get("failed", {})
+    print(f"\n☁️ Zotero Web API 写入: {ok} 篇成功, {len(failed)} 篇失败", flush=True)
+    if skipped_web:
+        print(f"⏭ Web 去重跳过 {skipped_web} 篇", flush=True)
+    if skipped:
+        print(f"⏭ 本地/规则筛选跳过 {skipped} 篇", flush=True)
+    for idx, err in failed.items():
+        title = new_papers[int(idx)].get("title", "?")[:70] if str(idx).isdigit() and int(idx) < len(new_papers) else "?"
+        print(f"  ⚠ {title}: {err}", flush=True)
+
+    if ok and args.wait_local_sync:
+        dois = {_paper_doi(p) for p in new_papers if _paper_doi(p)}
+        print(f"🔄 等待 Zotero Desktop 同步到本地（最多 {args.sync_timeout}s）...", flush=True)
+        found, missing = wait_for_local_dois(
+            lambda: _get_existing_dois(zotero_dir=args.zotero_dir),
+            dois,
+            timeout=args.sync_timeout,
+            interval=5,
+        )
+        if missing:
+            print(f"  ⚠ 云端已写入，但本地仍未同步 {len(missing)} 个 DOI", flush=True)
+        else:
+            print(f"  ✅ 本地 Zotero 已同步 {len(found)} 个 DOI", flush=True)
+    return bool(ok)
+
+
 def main():
     parser = argparse.ArgumentParser(description="自动检索文献并生成 RIS 文件")
     parser.add_argument("keywords", help="英文搜索关键词")
@@ -475,6 +606,16 @@ def main():
     parser.add_argument("--pubmed-api-key", help="PubMed API Key (或用 PUBMED_API_KEY / NCBI_API_KEY 环境变量)")
     parser.add_argument("--zotero-dir", default=get_zotero_dir(), help="Zotero 数据根目录（优先于环境变量）")
     parser.add_argument("--import-zotero", action="store_true", help="自动打开 Zotero 导入 RIS 文件（仅 macOS）")
+    parser.add_argument("--web-import", action="store_true", default=get_zotero_web_import(), help="通过 Zotero Web API 直接入库")
+    parser.add_argument("--zotero-api-key", help="Zotero Web API Key (或用 ZOTERO_API_KEY 环境变量)")
+    parser.add_argument("--zotero-library-type", choices=["user", "group"], default=get_zotero_library_type(), help="Zotero library 类型")
+    parser.add_argument("--zotero-library-id", default=get_zotero_library_id(), help="Zotero userID 或 groupID")
+    parser.add_argument("--collection-key", help="直接指定 Zotero collection key，跳过 collection path 解析")
+    parser.add_argument("--create-collection", dest="create_collection", action="store_true", default=True, help="自动创建缺失 collection（默认）")
+    parser.add_argument("--no-create-collection", dest="create_collection", action="store_false", help="collection 不存在时失败")
+    parser.add_argument("--wait-local-sync", action="store_true", default=True, help="Web 入库后等待本地 Zotero 同步（默认）")
+    parser.add_argument("--no-wait-local-sync", dest="wait_local_sync", action="store_false", help="Web 入库后不等待本地同步")
+    parser.add_argument("--sync-timeout", type=int, default=get_zotero_sync_timeout(), help="等待本地同步秒数")
     args = parser.parse_args()
 
 
@@ -493,38 +634,18 @@ def main():
         return
 
     existing = _get_existing_dois(zotero_dir=args.zotero_dir)
+    selected_papers, skipped = _filter_candidates(papers, args, existing)
+
+    if args.web_import:
+        try:
+            _web_import(args, selected_papers, skipped=skipped)
+        except ZoteroWebError as e:
+            print(f"❌ Zotero Web API 入库失败: {e}", flush=True)
+        return
+
     entries = []
-    skipped = 0
-    for i, paper in enumerate(papers, 1):
-        doi = (paper.get("externalIds", {}) or {}).get("DOI", "").strip().lower()
-        if doi and doi in existing:
-            print(f"  ⏭ 跳过: {paper.get('title','?')[:70]} (已有)", flush=True)
-            skipped += 1
-            continue
-        cites = paper.get("citationCount", 0) or 0
-        if not args.screen and args.min_citations and cites < args.min_citations:
-            print(f"  ⏭ 跳过: {paper.get('title','?')[:60]} ({cites}引用, 低于{args.min_citations})", flush=True)
-            skipped += 1
-            continue
-        tag = args.tag
-        if args.screen:
-            screen = screen_paper(paper, args.min_relevance)
-            reason = "; ".join(screen["reasons"]) or "no screen signals"
-            if not screen["keep"]:
-                print(
-                    f"  ⏭ 跳过: {paper.get('title','?')[:60]} "
-                    f"(screen:{screen['tier']} score={screen['score']}; {reason})",
-                    flush=True,
-                )
-                skipped += 1
-                continue
-            tag = _screen_tag(args.tag, screen)
-            print(
-                f"  ✅ 保留: {paper.get('title','?')[:60]} "
-                f"(screen:{screen['tier']} score={screen['score']}; {reason})",
-                flush=True,
-            )
-        entries.append(_to_ris(paper, i, tag))
+    for i, paper in enumerate(selected_papers, 1):
+        entries.append(_to_ris(paper, i, paper.get("_zotero_tag", args.tag)))
 
     if not entries:
         print("❌ 所有文献已在 Zotero 中", flush=True)

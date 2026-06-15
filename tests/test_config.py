@@ -44,6 +44,18 @@ class ConfigTests(unittest.TestCase):
         os.environ["REVIEW_ASSISTANT_USE_PROXY"] = "true"
         self.assertFalse(config.should_strip_proxy())
 
+    def test_zotero_web_config(self):
+        os.environ["ZOTERO_API_KEY"] = "zkey"
+        os.environ["ZOTERO_LIBRARY_TYPE"] = "group"
+        os.environ["ZOTERO_LIBRARY_ID"] = "42"
+        os.environ["ZOTERO_WEB_IMPORT"] = "true"
+        os.environ["ZOTERO_SYNC_TIMEOUT"] = "30"
+        self.assertEqual(config.get_zotero_api_key(), "zkey")
+        self.assertEqual(config.get_zotero_library_type(), "group")
+        self.assertEqual(config.get_zotero_library_id(), "42")
+        self.assertTrue(config.get_zotero_web_import())
+        self.assertEqual(config.get_zotero_sync_timeout(), 30)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -71,3 +71,24 @@ def should_strip_proxy(default: bool = True) -> bool:
 def get_zotero_dir(default: str | None = None) -> str | None:
     value = env_str("ZOTERO_DIR", "")
     return value or default
+
+
+def get_zotero_api_key() -> str:
+    return env_str("ZOTERO_API_KEY", "")
+
+
+def get_zotero_library_type(default: str = "user") -> str:
+    return env_str("ZOTERO_LIBRARY_TYPE", default)
+
+
+def get_zotero_library_id(default: str = "") -> str:
+    return env_str("ZOTERO_LIBRARY_ID", default)
+
+
+def get_zotero_web_import(default: bool = False) -> bool:
+    return env_bool("ZOTERO_WEB_IMPORT", default)
+
+
+def get_zotero_sync_timeout(default: int = 120) -> int:
+    timeout = env_int("ZOTERO_SYNC_TIMEOUT", default)
+    return max(0, timeout)

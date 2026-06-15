@@ -8,7 +8,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "scripts" / "auto_lit.py"
 
-sys.modules.setdefault("requests", types.SimpleNamespace(get=lambda *args, **kwargs: None))
 sys.modules.setdefault("zotero_reader", types.SimpleNamespace(ZoteroReader=object))
 
 spec = importlib.util.spec_from_file_location("auto_lit", MODULE_PATH)
@@ -217,6 +216,50 @@ class AutoLitScreenTests(unittest.TestCase):
                 requests.get = original_get
         finally:
             auto_lit.PUBMED_KEY = original_key
+
+    def test_web_import_path_does_not_write_ris_or_open_zotero(self):
+        class Args:
+            zotero_api_key = "key"
+            zotero_library_type = "user"
+            zotero_library_id = "123"
+            collection = "Root > Leaf"
+            collection_key = ""
+            create_collection = True
+            tag = "topic"
+            zotero_dir = None
+            wait_local_sync = False
+            sync_timeout = 0
+
+        class FakeClient:
+            def __init__(self, *args, **kwargs):
+                self.created = []
+
+            def ensure_collection_path(self, path, create=True):
+                self.path = path
+                self.create = create
+                return "COLL"
+
+            def find_existing_dois(self, dois):
+                return set()
+
+            def create_items(self, papers, collection_key, tags):
+                self.created.append((papers, collection_key, tags))
+                return {"successful": {"0": {"key": "ITEM"}}, "failed": {}}
+
+        original_client = auto_lit.ZoteroWebClient
+        original_existing = auto_lit._get_existing_dois
+        try:
+            auto_lit.ZoteroWebClient = FakeClient
+            auto_lit._get_existing_dois = lambda zotero_dir=None: set()
+            ok = auto_lit._web_import(Args(), [{
+                "title": "Paper",
+                "externalIds": {"DOI": "10.1000/test"},
+                "_zotero_tags": ["topic"],
+            }])
+            self.assertTrue(ok)
+        finally:
+            auto_lit.ZoteroWebClient = original_client
+            auto_lit._get_existing_dois = original_existing
 
 
 if __name__ == "__main__":
