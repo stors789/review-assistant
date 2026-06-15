@@ -18,8 +18,8 @@ spec.loader.exec_module(auto_lit)
 class AutoLitScreenTests(unittest.TestCase):
     def test_screen_keeps_recent_low_citation_direct_match(self):
         paper = {
-            "title": "Theta EEG coupling with FDG PET glucose metabolism in prodromal Alzheimer disease",
-            "abstract": "Human older adult participants showed correlations between theta power and glucose metabolism.",
+            "title": "Hybrid search retrieval augmented generation for RAG faithfulness in LLM QA",
+            "abstract": "We evaluate RAG faithfulness in large language models using hybrid search.",
             "year": 2025,
             "citationCount": 0,
             "journal": {"name": "NeuroImage"},
@@ -31,7 +31,7 @@ class AutoLitScreenTests(unittest.TestCase):
 
     def test_screen_rejects_older_low_relevance_low_citation_paper(self):
         paper = {
-            "title": "EEG classification method for task performance",
+            "title": "Transformer classification method for task performance",
             "abstract": "A signal processing method is evaluated in a small dataset.",
             "year": 2012,
             "citationCount": 1,
@@ -43,8 +43,8 @@ class AutoLitScreenTests(unittest.TestCase):
 
     def test_screen_penalizes_excluded_domains(self):
         paper = {
-            "title": "Theta EEG and PET metabolism in pediatric epilepsy",
-            "abstract": "Children with seizures were evaluated using PET and EEG.",
+            "title": "Retrieval augmented generation in computer vision models",
+            "abstract": "Image generation and computer vision systems were evaluated using RAG.",
             "year": 2018,
             "citationCount": 20,
             "journal": {"name": "Epilepsy Research"},
@@ -54,18 +54,18 @@ class AutoLitScreenTests(unittest.TestCase):
         self.assertTrue(any(reason.startswith("exclude:") for reason in result["reasons"]))
 
     def test_term_matching_uses_word_boundaries_for_short_terms(self):
-        self.assertNotIn("rat", auto_lit._matched_terms("regional perfusion alteration", {"rat"}))
-        self.assertIn("rat", auto_lit._matched_terms("rat model of metabolism", {"rat"}))
+        self.assertNotIn("gpt", auto_lit._matched_terms("acceptance of gptlike systems", {"gpt"}))
+        self.assertIn("gpt", auto_lit._matched_terms("the gpt model architecture", {"gpt"}))
 
     def test_ris_splits_screen_tags_into_keywords(self):
         paper = {
-            "title": "Theta EEG BOLD coupling",
+            "title": "RAG LLM hybrid search evaluation",
             "year": 2024,
             "authors": [{"name": "A. Author"}],
             "externalIds": {"DOI": "10.1000/test"},
         }
-        ris = auto_lit._to_ris(paper, 1, "theta-metabolic-coupling; screen:A; score:7")
-        self.assertIn("KW  - theta-metabolic-coupling", ris)
+        ris = auto_lit._to_ris(paper, 1, "rag-hybrid-evaluation; screen:A; score:7")
+        self.assertIn("KW  - rag-hybrid-evaluation", ris)
         self.assertIn("KW  - screen:A", ris)
         self.assertIn("KW  - score:7", ris)
 

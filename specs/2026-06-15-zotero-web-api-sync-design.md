@@ -52,10 +52,10 @@ RIS 导出保留为 fallback，不作为默认高级路径的依赖。
 
 ```bash
 review-assistant-autolit \
-  "theta EEG FDG PET" \
+  "hybrid search reranking RAG" \
   --web-import \
-  -c "电波 > theta > metabolic coupling" \
-  -t theta-metabolic-coupling
+  -c "信息检索 > RAG > hybrid search" \
+  -t rag-hybrid-evaluation
 ```
 
 ## Components

@@ -77,9 +77,17 @@ The report decomposes the paragraph into independent claims, matches each claim 
 Run the full review pipeline:
 
 ```bash
+# Using default keyword-based chunk selection:
 review-assistant-synthesize \
   "Collection > Subcollection" \
   -q "What does this literature show about the research question?" \
+  -o ./synthesize_output
+
+# Using semantic vector search (Hybrid RAG) for chunk selection:
+review-assistant-synthesize \
+  "Collection > Subcollection" \
+  -q "What does this literature show about the research question?" \
+  --vector-search \
   -o ./synthesize_output
 ```
 
@@ -90,11 +98,20 @@ The pipeline extracts findings from every available PDF, builds an outline, writ
 Search Semantic Scholar and import into Zotero. The default behavior generates an RIS file; `--web-import` writes directly through the Zotero Web API and can wait for Zotero Desktop to sync locally:
 
 ```bash
+# Using default screening rules:
 review-assistant-autolit \
   "short English search query" \
   -c "Target Zotero Collection" \
   -t "topic-tag" \
   -n 10
+
+# Using custom screening rules from a JSON config file:
+review-assistant-autolit \
+  "short English search query" \
+  --screen \
+  --screen-rules ./custom_rules.json \
+  -c "Target Zotero Collection" \
+  -t "topic-tag"
 ```
 
 Direct Web API import:
@@ -233,6 +250,8 @@ python -m pip install -e .
 - `REVIEW_ASSISTANT_BASE_URL` / `DEEPSEEK_BASE_URL`: Default OpenAI-compatible API base URL.
 - `REVIEW_ASSISTANT_MODEL`: Default model for LLM-backed workflows.
 - `REVIEW_ASSISTANT_STEP7_MODEL`: Default model for synthesis table and Mermaid generation.
+- `REVIEW_ASSISTANT_EMBEDDING_API_KEY`: Custom API Key for text embeddings (defaults to `OPENAI_API_KEY`).
+- `REVIEW_ASSISTANT_EMBEDDING_BASE_URL`: Custom API base URL for text embeddings (defaults to OpenAI's endpoint if using OpenAI key).
 - `REVIEW_ASSISTANT_WORKERS`: Default worker count for concurrent workflows.
 - `REVIEW_ASSISTANT_USE_PROXY=true`: Preserve system proxy variables instead of stripping/bypassing them.
 
@@ -262,6 +281,14 @@ Additional DeepSeek keys are auto-detected by the synthesis pipeline for key rot
 - PDF text and LLM findings are cached to make reruns cheaper and reproducible.
 - Analytical extraction uses deterministic model settings where practical.
 - The synthesis pipeline favors grounded findings over broad, unsupported narrative generation.
+
+## Generality & Portability
+
+Review Assistant is engineered with strict generality and portability guidelines to support any research topic and target environment:
+
+- **Customizable Screening Rules**: The literature screening system is fully generic. Instead of hardcoded rules, you can define your own keywords, weights (including negative values for exclusion), and categorization tiers in a JSON config file and load it via the `--screen-rules` option in `auto_lit.py`. If no file is specified, it gracefully falls back to the default RAG/LLM evaluation rules.
+- **Cross-Platform Zotero Paths**: If your Zotero database was created on a different OS (e.g., Windows drive letters `C:\...`) or uses linked file attachments, path mapping is handled dynamically on macOS/Linux using `ZOTERO_LINKED_BASE_DIR` and `ZOTERO_LINKED_PREFIX_MAP` configurations.
+- **Multi-LLM Compatibility**: The backend dynamically detects model families (e.g., DeepSeek, OpenAI, local Ollama/LM Studio). It automatically sanitizes request payloads (like stripping DeepSeek's `thinking` parameters on standard models) if the provider returns a bad request parameter error, allowing zero-configuration swaps.
 
 ## Limitations
 

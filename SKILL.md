@@ -170,6 +170,7 @@ Step1 ──→ Ver1 ──→ Step2 ──→ Step3 ──→ Step4 ──→ V
 | `-w` / `--workers` | 并发数 | `5` |
 | `--skip-step1` | 跳过 Step1，从已有 findings 继续 | — |
 | `--skip-verify` | 跳过所有验证 | — |
+| `--vector-search` | 开启向量嵌入语义相似度检索，与关键字检索混合计分（Hybrid RAG） | 关闭 |
 | `--max-papers` | 最大处理论文数 | `0`（无限制） |
 
 ### 输出
@@ -235,15 +236,15 @@ python scripts/auto_lit.py "<英文关键词>" --web-import -c "<父集 > 子集
 交叉主题或近年文献不宜只用硬引用阈值。需要保护新文献时优先使用：
 
 ```bash
-python scripts/auto_lit.py "theta EEG FDG PET" --screen --min-relevance 4 -m 0 -n 20 -c "电波 > theta" -t theta-metabolic-coupling
+python scripts/auto_lit.py "hybrid search reranking RAG" --screen --min-relevance 4 -m 0 -n 20 -c "信息检索 > RAG" -t rag-hybrid-evaluation
 ```
 
 `--screen` 会根据标题、摘要和期刊对候选文献打分：
-- theta/EEG 相关信号
-- FDG/PET/glucose/BOLD/fMRI/CBF/SPECT/ASL/perfusion 等代谢或血流信号
-- healthy adult/aging/MCI/Alzheimer/dementia/neurodegenerative 等目标人群
-- human/coupling/correlation/prediction 等研究设计信号
-- animal/children/epilepsy/psychiatry/anesthesia 等偏题信号扣分
+- rag/retrieval-augmented generation/hybrid search 等核心检索技术信号
+- llm/large language model/transformer/gpt/claude 等模型架构信号
+- faithfulness/hallucination/accuracy/evaluation/groundedness 等评估指标信号
+- reranking/query expansion/vector database 等辅助技术信号
+- computer vision/image generation/speech recognition/robotics 等无关领域信号扣分
 
 导出的 RIS 会增加 `screen:A/B` 和 `score:N` 关键词，方便在 Zotero 中复查。未开启 `--screen` 时，`-m` 仍保持原来的硬引用数过滤行为。
 
@@ -265,6 +266,21 @@ python scripts/auto_lit.py "theta EEG FDG PET" --screen --min-relevance 4 -m 0 -
 - **双层缓存**：PDF 文本 → PDF 内容 SHA256 缓存；API 发现 → PDF 内容 hash + 问题 + 模型 + 缓存版本。**换问题/模型或 PDF 内容变化都会重新提取**
 - **多 key 轮转**：自动检测 `DEEPSEEK_API_KEY_2`、`_3`、`_4`... 突破单 key 速率限制
 - **孤儿引用自动清理**：参考文献只保留正文中实际 `[N]` 引用过的文献
+
+### 通用性与可移植性开发规范（开发必读）
+
+后续对此项目进行维护、开发或扩展代码时，**必须**严格遵守以下规范，以维持项目的通用性与跨平台可移植性：
+
+1. **禁止硬编码任何特定科研课题的专有词组与筛选规则**：
+   - 严禁在代码中直接写死针对特定领域（如脑电、特定疾病等）的关键词列表或特定匹配逻辑。
+   - 所有筛选或分析规则，必须提取为通用的数据结构（如 JSON/YAML 规则配置文件），并通过类似 `--screen-rules` 的配置参数动态加载。
+   - 必须提供默认配置回退字典（如 `DEFAULT_SCREENING_RULES`），以在未提供自定义规则时充当默认行为，且确保不破坏既有单元测试。
+2. **严守跨平台路径归一化与 Zotero linked-file 解析规约**：
+   - 处理任何涉及本地文件路径（特别是 Zotero 附件 PDF）的逻辑时，禁止假设特定操作系统的斜线格式。
+   - 必须通过 `Path` 接口进行跨平台路径包装，并优先采用 `zotero_reader.py` 中实现的盘符路径映射和根目录还原逻辑（支持 `ZOTERO_LINKED_PREFIX_MAP` 和 `ZOTERO_LINKED_BASE_DIR`），确保 Windows 和 Unix 环境下的相互迁移。
+3. **保持多大模型厂商 API 的参数自适应兼容**：
+   - 在向不同 LLM 模型（如 DeepSeek、OpenAI、本地 Ollama/LM Studio 等）发起 API 调用时，严禁硬编码特定厂商专有的超参数（如 DeepSeek 专有的 `thinking` / `reasoning_effort`）。
+   - 如确实要使用，必须在 `llm_client.py` 等底层调用端做异常容错降级：当遇到 API 参数错误（400 Bad Request）时，应自动剥离这些专有参数并原地重试，防止用户因更换模型而导致程序全面崩溃。
 
 ### 输出质量检查
 
@@ -351,4 +367,4 @@ JSON 报告包含每条主张的逐篇验证详情，终端同时输出 Markdown
 - **Windows Cmd**: `set DEEPSEEK_API_KEY="your-key"` 且 `set SS_API_KEY="your-key"` 且 `set PUBMED_API_KEY="your-key"`
 - **Windows PowerShell**: `$env:DEEPSEEK_API_KEY="your-key"`; `$env:SS_API_KEY="your-key"`; `$env:PUBMED_API_KEY="your-key"`
 
-可选配置环境变量：`REVIEW_ASSISTANT_BASE_URL` / `DEEPSEEK_BASE_URL`、`REVIEW_ASSISTANT_MODEL`、`REVIEW_ASSISTANT_STEP7_MODEL`、`REVIEW_ASSISTANT_WORKERS`、`REVIEW_ASSISTANT_USE_PROXY=true`、`ZOTERO_DIR`、`ZOTERO_LINKED_BASE_DIR`、`ZOTERO_LINKED_PREFIX_MAP`、`AUTO_LIT_LOCK_DIR`、`ZOTERO_API_KEY`、`ZOTERO_LIBRARY_TYPE`、`ZOTERO_LIBRARY_ID`、`ZOTERO_WEB_IMPORT`、`ZOTERO_SYNC_TIMEOUT`。
+可选配置环境变量：`REVIEW_ASSISTANT_BASE_URL` / `DEEPSEEK_BASE_URL`、`REVIEW_ASSISTANT_MODEL`、`REVIEW_ASSISTANT_STEP7_MODEL`、`REVIEW_ASSISTANT_EMBEDDING_API_KEY`、`REVIEW_ASSISTANT_EMBEDDING_BASE_URL`、`REVIEW_ASSISTANT_WORKERS`、`REVIEW_ASSISTANT_USE_PROXY=true`、`ZOTERO_DIR`、`ZOTERO_LINKED_BASE_DIR`、`ZOTERO_LINKED_PREFIX_MAP`、`AUTO_LIT_LOCK_DIR`、`ZOTERO_API_KEY`、`ZOTERO_LIBRARY_TYPE`、`ZOTERO_LIBRARY_ID`、`ZOTERO_WEB_IMPORT`、`ZOTERO_SYNC_TIMEOUT`。

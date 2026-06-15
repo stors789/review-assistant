@@ -35,7 +35,8 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
                          idx: int, total: int, findings_dir: Path = None,
                          force_refresh: bool = False,
                          use_evidence_pack: bool = True,
-                         ai_rerank_chunks: bool = False) -> dict:
+                         ai_rerank_chunks: bool = False,
+                         use_vector_search: bool = False) -> dict:
     """Step 1: Extract findings from a single paper PDF."""
     stem = pdf_path.stem[:60]
     pdf_hash = file_sha256(pdf_path)
@@ -69,11 +70,14 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
             ai_rerank=ai_rerank_chunks,
             rerank_client=client,
             rerank_model=model,
+            use_vector_search=use_vector_search,
+            pdf_hash=pdf_hash,
+            cache_dir=text_cache_dir,
         )
     else:
         prompt_text = text[:max_chars] if len(text) > max_chars else text
 
-    fcache_key = findings_cache_key(pdf_path, question, model, use_evidence_pack, ai_rerank_chunks)
+    fcache_key = findings_cache_key(pdf_path, question, model, use_evidence_pack, ai_rerank_chunks, use_vector_search)
     fcache_path = findings_dir / f"{fcache_key}.json" if findings_dir else None
     if not force_refresh and fcache_path and fcache_path.exists():
         cached_result = normalize_finding_relevance(json.loads(fcache_path.read_text(encoding="utf-8")))
@@ -128,6 +132,7 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
                 "model": model,
                 "input_mode": "evidence_pack" if use_evidence_pack else "full_prefix",
                 "ai_rerank_chunks": bool(ai_rerank_chunks and use_evidence_pack),
+                "use_vector_search": bool(use_vector_search and use_evidence_pack),
             }}
     if coverage:
         result["evidence_pack"] = coverage
@@ -143,7 +148,8 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
 def step1_extract_all(client_factory, papers: list[dict], question: str, model: str,
                        text_cache_dir: Path, workers: int, findings_dir: Path,
                        use_evidence_pack: bool = True,
-                       ai_rerank_chunks: bool = False) -> list[dict]:
+                       ai_rerank_chunks: bool = False,
+                       use_vector_search: bool = False) -> list[dict]:
     """Step 1: Concurrent extraction of all findings across papers."""
     print(f"\n── Step 1: 逐篇提取 ──", flush=True)
     print_lock = threading.Lock()
@@ -165,7 +171,8 @@ def step1_extract_all(client_factory, papers: list[dict], question: str, model: 
             f = executor.submit(step1_extract_single, client, pdf_path, meta, question,
                                 model, text_cache_dir, print_lock, i, total, findings_dir,
                                 use_evidence_pack=use_evidence_pack,
-                                ai_rerank_chunks=ai_rerank_chunks)
+                                ai_rerank_chunks=ai_rerank_chunks,
+                                use_vector_search=use_vector_search)
             futures[f] = pdf_path
         for future in as_completed(futures):
             results.append(future.result())
@@ -198,13 +205,14 @@ def step1_extract_all(client_factory, papers: list[dict], question: str, model: 
 
 def load_cached_findings_for_papers(papers: list[dict], question: str, model: str,
                                     findings_dir: Path, use_evidence_pack: bool = True,
-                                    ai_rerank_chunks: bool = False) -> list[dict]:
+                                    ai_rerank_chunks: bool = False,
+                                    use_vector_search: bool = False) -> list[dict]:
     """Load cached findings JSON if they match parameters and file hashes."""
     results = []
     missing = []
     for i, paper in enumerate(papers, 1):
         pdf_path = Path(paper["pdf_path"])
-        key = findings_cache_key(pdf_path, question, model, use_evidence_pack, ai_rerank_chunks)
+        key = findings_cache_key(pdf_path, question, model, use_evidence_pack, ai_rerank_chunks, use_vector_search)
         path = findings_dir / f"{key}.json"
         if not path.exists():
             missing.append(str(pdf_path))
@@ -218,6 +226,7 @@ def load_cached_findings_for_papers(papers: list[dict], question: str, model: st
             or cache_meta.get("pdf_sha256") != file_sha256(pdf_path)
             or cache_meta.get("input_mode") != ("evidence_pack" if use_evidence_pack else "full_prefix")
             or bool(cache_meta.get("ai_rerank_chunks")) != bool(ai_rerank_chunks and use_evidence_pack)
+            or bool(cache_meta.get("use_vector_search")) != bool(use_vector_search and use_evidence_pack)
         ):
             missing.append(str(pdf_path))
             continue

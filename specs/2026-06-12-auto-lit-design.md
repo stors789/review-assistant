@@ -23,8 +23,8 @@
 Agent 收到用户自然语言后，先翻译为 SS 关键词再调用脚本。脚本只收关键词。
 
 ```
-用户: "找 alpha 和 FDG-PET 在健康老年人里的文献"
-agent: "alpha EEG FDG-PET glucose metabolism healthy elderly" → 调脚本
+用户: "找混合检索和重排在 RAG 中的文献"
+agent: "hybrid search reranking retrieval augmented generation RAG" → 调脚本
 ```
 
 ### 2. 获取 Zotero 集 key
@@ -53,7 +53,7 @@ Zotero 7 移除了完整 HTTP API，改用 RIS 文件导入：
 
 终端打印：
 ```
-🔍 搜索: "alpha EEG FDG-PET glucose metabolism healthy elderly"
+🔍 搜索: "hybrid search reranking retrieval augmented generation RAG"
 📥 找到 20 篇，已入库 17 篇，跳过 3 篇（重复）
 💡 打开 Zotero，选中新条目，右键 → Find Available PDF 下载全文
 ```
@@ -78,7 +78,7 @@ Agent 负责把用户自然语言翻译为英文关键词后传入。
 
 ```
 explore 跑完
-→ agent: "发现 3 个缺口: ①健康衰老+CBF ②AD+FDG-PET ③VaD+ASL。要搜吗？"
+→ agent: "发现 3 个缺口: ①混合检索+向量重排 ②稀疏检索+逆文档频率 ③密集检索+多向量表示。要搜吗？"
 → 用户: "搜 ① 和 ②"
 → agent: 翻译关键词 → auto_lit.py → 生成 gap_1.ris, gap_2.ris
 → 用户: 双击 RIS 导入 Zotero → Find Available PDF → 重跑 explore

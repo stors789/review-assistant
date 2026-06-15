@@ -182,6 +182,67 @@ class ExploreSynthesizeTests(unittest.TestCase):
         finally:
             explore.call_json = original_call_json
 
+    def test_cosine_similarity_correctness(self):
+        from evidence_pack import cosine_similarity
+        v1 = [1.0, 0.0, 0.0]
+        v2 = [0.0, 1.0, 0.0]
+        v3 = [1.0, 1.0, 0.0]
+        # Orthogonal vectors -> 0.0 similarity
+        self.assertAlmostEqual(cosine_similarity(v1, v2), 0.0)
+        # Identical vectors -> 1.0 similarity
+        self.assertAlmostEqual(cosine_similarity(v1, v1), 1.0)
+        # 45 degrees -> 1 / sqrt(2) = ~0.707 similarity
+        self.assertAlmostEqual(cosine_similarity(v1, v3), 1.0 / (2.0 ** 0.5))
+
+    def test_embeddings_caching_and_hybrid_scoring(self):
+        from evidence_pack import build_evidence_pack
+        import llm_client
+        
+        # Mock embedding calls
+        original_get_emb = llm_client.get_embedding
+        original_get_emb_client = llm_client.get_embedding_client
+        try:
+            llm_client.get_embedding_client = lambda: object()
+            llm_client.get_embedding = lambda client, text, model="text-embedding-3-small", retries=2: [1.0, 0.0] if "question" in text else [0.8, 0.6]
+
+            with TemporaryDirectory() as tmp:
+                cache_dir = Path(tmp)
+                text = "Title\n\nAbstract\nThis study evaluates hybrid search in RAG.\n\nResults\nWe found hybrid search improves RAG faithfulness."
+                
+                # First run: compute and cache
+                pack1, cov1 = build_evidence_pack(
+                    text,
+                    question="How does hybrid search affect RAG?",
+                    use_vector_search=True,
+                    pdf_hash="test_pdf_hash",
+                    cache_dir=cache_dir
+                )
+                self.assertTrue(cov1.get("vector_search", {}).get("enabled"))
+                
+                # Check cache file was created
+                cache_file = cache_dir / "test_pdf_hash.embeddings.json"
+                self.assertTrue(cache_file.exists())
+                
+                # Second run: force API to fail for chunks, proving it successfully uses cache
+                def failing_get_emb(client, text, *args, **kwargs):
+                    if text == "How does hybrid search affect RAG?":
+                        return [1.0, 0.0]
+                    raise RuntimeError("Should not call network API for chunks when cached!")
+                llm_client.get_embedding = failing_get_emb
+                
+                pack2, cov2 = build_evidence_pack(
+                    text,
+                    question="How does hybrid search affect RAG?",
+                    use_vector_search=True,
+                    pdf_hash="test_pdf_hash",
+                    cache_dir=cache_dir
+                )
+                self.assertTrue(cov2.get("vector_search", {}).get("enabled"))
+        finally:
+            llm_client.get_embedding = original_get_emb
+            llm_client.get_embedding_client = original_get_emb_client
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -201,3 +201,51 @@ def call_text(client: OpenAI, prompt: str, model: str, max_tokens: int = 4096, r
             if attempt < retries:
                 print(f"     ⚠ 重试 {attempt+1}/{retries}: {e}", flush=True)
     raise last_err
+
+
+_emb_client = None
+_emb_lock = threading.Lock()
+
+
+def get_embedding_client() -> OpenAI:
+    """Get a thread-safe OpenAI client dedicated to embedding generation."""
+    global _emb_client
+    with _emb_lock:
+        if _emb_client is not None:
+            return _emb_client
+        
+        emb_key = os.environ.get("REVIEW_ASSISTANT_EMBEDDING_API_KEY")
+        emb_url = os.environ.get("REVIEW_ASSISTANT_EMBEDDING_BASE_URL")
+        
+        if not emb_key:
+            emb_key = os.environ.get("OPENAI_API_KEY")
+        if not emb_key:
+            from config import get_api_key
+            emb_key = get_api_key()
+            
+        if not emb_url:
+            if os.environ.get("OPENAI_API_KEY") == emb_key:
+                emb_url = "https://api.openai.com/v1"
+            else:
+                emb_url = _base_url
+                
+        if not emb_key:
+            raise ValueError("请设置 REVIEW_ASSISTANT_EMBEDDING_API_KEY 或 OPENAI_API_KEY 用于生成向量嵌入")
+            
+        _emb_client = OpenAI(api_key=emb_key, base_url=emb_url)
+        return _emb_client
+
+
+def get_embedding(client: OpenAI, text: str, model: str = "text-embedding-3-small", retries: int = 2) -> list[float]:
+    """Get embedding vector for a given text block, using text-embedding-3-small by default."""
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            resp = client.embeddings.create(input=[text], model=model)
+            return resp.data[0].embedding
+        except Exception as e:
+            last_err = e
+            if attempt < retries:
+                print(f"     ⚠ Embedding 生成重试 {attempt+1}/{retries}: {e}", flush=True)
+    raise last_err
+

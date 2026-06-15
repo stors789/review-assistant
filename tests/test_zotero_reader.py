@@ -102,7 +102,7 @@ class ZoteroReaderTests(unittest.TestCase):
         cursor.execute("INSERT INTO collectionItems VALUES (101, 2)")
 
         # 4. Insert item data values
-        cursor.execute("INSERT INTO itemDataValues VALUES (1, 'Metabolic Coupling in Aging')")
+        cursor.execute("INSERT INTO itemDataValues VALUES (1, 'Hybrid Search in Retrieval-Augmented Generation')")
         cursor.execute("INSERT INTO itemDataValues VALUES (2, '2026')")
         cursor.execute("INSERT INTO itemDataValues VALUES (3, 'Journal of Neuroscience')")
         cursor.execute("INSERT INTO itemDataValues VALUES (4, '10.1234/jns.2026.01')")
@@ -148,7 +148,7 @@ class ZoteroReaderTests(unittest.TestCase):
             items = reader.list_items("Theme > Subtheme")
             self.assertEqual(len(items), 1)
             item = items[0]
-            self.assertEqual(item["title"], "Metabolic Coupling in Aging")
+            self.assertEqual(item["title"], "Hybrid Search in Retrieval-Augmented Generation")
             self.assertEqual(item["authors"], "Smith, John")
             self.assertEqual(item["journal"], "Journal of Neuroscience")
             self.assertEqual(item["date"], "2026")

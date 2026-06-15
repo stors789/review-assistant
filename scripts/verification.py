@@ -24,7 +24,8 @@ def verify_findings(all_results: list[dict], papers: list[dict],
                     text_cache_dir: Path, findings_dir: Path,
                     question: str = "", print_lock: threading.Lock = None,
                     use_evidence_pack: bool = True,
-                    ai_rerank_chunks: bool = False) -> list[dict]:
+                    ai_rerank_chunks: bool = False,
+                    use_vector_search: bool = False) -> list[dict]:
     """Ver 1: Directly search original text with finding quote. Re-extract on failure (max 2 rounds)."""
     print(f"\n── Ver 1: 验证发现（字符串检索）──", flush=True)
     if print_lock is None:
@@ -113,7 +114,8 @@ def verify_findings(all_results: list[dict], papers: list[dict],
                                        text_cache_dir, print_lock, i + 1, total, findings_dir,
                                        force_refresh=True,
                                        use_evidence_pack=use_evidence_pack,
-                                       ai_rerank_chunks=ai_rerank_chunks)
+                                       ai_rerank_chunks=ai_rerank_chunks,
+                                       use_vector_search=use_vector_search)
             if new.get("relevant") and new.get("findings"):
                 all_results[i] = new
                 print(f"  ✅ 重提取成功: {pdf_path.name[:40]}...", flush=True)

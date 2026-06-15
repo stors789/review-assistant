@@ -98,6 +98,8 @@ def main():
                         help="Step1 使用旧模式：发送 PDF 文本前 80000 字符，而不是 EvidencePack")
     parser.add_argument("--ai-rerank-chunks", action="store_true",
                         help="Step1 可选：用 AI 对 EvidencePack 候选文本块重排（默认关闭，--full-prefix 时无效）")
+    parser.add_argument("--vector-search", action="store_true",
+                        help="Step1 可选：使用轻量向量特征对 EvidencePack 候选块进行语义匹配重排（默认关闭，--full-prefix 时无效）")
     parser.add_argument("--max-fix-passes", type=int, default=2, help="修正报告的最大轮数（默认2）")
     parser.add_argument("--stop-after", choices=STOP_AFTER_CHOICES,
                         help="调试模式：在指定步骤完成后停止（step1/ver1/step2/step3/step4）")
@@ -159,6 +161,7 @@ def main():
                 findings_dir,
                 use_evidence_pack=not args.full_prefix,
                 ai_rerank_chunks=args.ai_rerank_chunks and not args.full_prefix,
+                use_vector_search=args.vector_search and not args.full_prefix,
             )
         except RuntimeError as e:
             sys.exit(str(e))
@@ -169,7 +172,8 @@ def main():
         all_results = step1_extract_all(client_factory, papers, args.question,
                                         args.model, cache_dir, args.workers, findings_dir,
                                         use_evidence_pack=not args.full_prefix,
-                                        ai_rerank_chunks=args.ai_rerank_chunks and not args.full_prefix)
+                                        ai_rerank_chunks=args.ai_rerank_chunks and not args.full_prefix,
+                                        use_vector_search=args.vector_search and not args.full_prefix)
 
     relevant_papers = [r for r in all_results if r["relevant"]]
     if not relevant_papers:
@@ -186,7 +190,8 @@ def main():
                                        cache_dir, findings_dir,
                                        args.question,
                                        use_evidence_pack=not args.full_prefix,
-                                       ai_rerank_chunks=args.ai_rerank_chunks and not args.full_prefix)
+                                       ai_rerank_chunks=args.ai_rerank_chunks and not args.full_prefix,
+                                       use_vector_search=args.vector_search and not args.full_prefix)
                                        
     # ── 导出 EvidencePack 覆盖率报告 ──
     coverage_report = []

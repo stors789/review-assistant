@@ -17,7 +17,8 @@ REPORT_CACHE_VERSION = "2026-06-14-v1"
 
 def findings_cache_key(pdf_path: Path, question: str, model: str,
                        use_evidence_pack: bool = True,
-                       ai_rerank_chunks: bool = False) -> str:
+                       ai_rerank_chunks: bool = False,
+                       use_vector_search: bool = False) -> str:
     """Generate a stable findings cache key based on settings and file hash."""
     payload = {
         "cache_version": FINDINGS_CACHE_VERSION,
@@ -26,6 +27,7 @@ def findings_cache_key(pdf_path: Path, question: str, model: str,
         "model": model,
         "input_mode": "evidence_pack" if use_evidence_pack else "full_prefix",
         "ai_rerank_chunks": bool(ai_rerank_chunks and use_evidence_pack),
+        "use_vector_search": bool(use_vector_search and use_evidence_pack),
     }
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]

@@ -69,32 +69,46 @@ _SS_LOCK_FILE = _get_ss_lock_file()
 CURRENT_YEAR = datetime.now().year
 
 
-CORE_TERMS = {
-    "theta", "theta-band", "theta band", "theta power", "theta rhythm", "theta rhythms",
-    "eeg", "electroencephalography", "electroencephalographic", "qeeg",
-}
-METABOLIC_TERMS = {
-    "fdg", "pet", "glucose", "metabolism", "metabolic", "bold", "fmri",
-    "cerebral blood flow", "cbf", "spect", "asl", "perfusion", "neurovascular",
-}
-POPULATION_TERMS = {
-    "healthy", "adult", "adults", "aging", "ageing", "older", "elderly",
-    "mci", "mild cognitive impairment", "prodromal", "cognitive decline",
-    "alzheimer", "dementia", "lewy", "parkinson", "frontotemporal",
-    "neurodegenerative", "normal",
-}
-HUMAN_STUDY_TERMS = {
-    "human", "subjects", "participants", "patients", "adults", "older adults",
-}
-COUPLING_TERMS = {
-    "coupling", "correlat", "association", "relationship", "linked", "mapping",
-    "correspondence", "predict", "neurovascular", "electrometabolic",
-}
-EXCLUSION_TERMS = {
-    "mouse", "mice", "rat", "rats", "animal", "pediatric", "paediatric",
-    "children", "infant", "newborn", "epilepsy", "seizure", "ketamine",
-    "schizophrenia", "bipolar", "depression", "cocaine", "anesthesia",
-    "anaesthesia", "olanzapine", "diabetes", "exercise",
+DEFAULT_SCREENING_RULES = {
+    "categories": {
+        "core": {
+            "terms": [
+                "rag", "retrieval-augmented generation", "retrieval augmented generation",
+                "hybrid search", "dense retrieval", "sparse retrieval", "vector search"
+            ],
+            "weight": 2,
+            "required_for_tier_a": True
+        },
+        "model": {
+            "terms": [
+                "llm", "large language model", "large language models", "transformer", "transformers",
+                "gpt", "deepseek", "llama", "claude", "foundation model", "foundation models"
+            ],
+            "weight": 2,
+            "required_for_tier_a": True
+        },
+        "evaluation": {
+            "terms": [
+                "faithfulness", "hallucination", "hallucinations", "accuracy", "benchmarking",
+                "metrics", "evaluation", "evaluating", "human evaluation", "groundedness"
+            ],
+            "weight": 2,
+            "required_for_tier_a": True
+        },
+        "techniques": {
+            "terms": [
+                "reranking", "rerank", "query expansion", "document chunking", "vector database"
+            ],
+            "weight": 1
+        },
+        "exclusion": {
+            "terms": [
+                "computer vision", "image generation", "speech recognition", "robotics",
+                "reinforcement learning", "rlhf", "hardware", "quantum computing"
+            ],
+            "weight": -2
+        }
+    }
 }
 
 
@@ -351,8 +365,11 @@ def _citation_penalty(year: int | None, citations: int) -> tuple[int, str]:
     return 0, "citation count acceptable"
 
 
-def screen_paper(paper: dict, min_relevance: int = 4) -> dict:
+def screen_paper(paper: dict, min_relevance: int = 4, rules: dict | None = None) -> dict:
     """Rule-based metadata screen for topic relevance before RIS export."""
+    if rules is None:
+        rules = DEFAULT_SCREENING_RULES
+
     text = _text_blob(paper)
     citations = paper.get("citationCount", 0) or 0
     year = paper.get("year")
@@ -364,40 +381,40 @@ def screen_paper(paper: dict, min_relevance: int = 4) -> dict:
     score = 0
     reasons = []
 
-    core_hits = _matched_terms(text, CORE_TERMS)
-    if core_hits:
-        score += 2
-        reasons.append("core:" + ",".join(core_hits[:3]))
-
-    metabolic_hits = _matched_terms(text, METABOLIC_TERMS)
-    if metabolic_hits:
-        score += 2
-        reasons.append("metabolic:" + ",".join(metabolic_hits[:3]))
-
-    population_hits = _matched_terms(text, POPULATION_TERMS)
-    if population_hits:
-        score += 2
-        reasons.append("population:" + ",".join(population_hits[:3]))
-
-    if _has_any(text, HUMAN_STUDY_TERMS):
-        score += 1
-        reasons.append("human-study")
-
-    if _has_any(text, COUPLING_TERMS):
-        score += 1
-        reasons.append("coupling-language")
-
-    exclusion_hits = _matched_terms(text, EXCLUSION_TERMS)
-    if exclusion_hits:
-        score -= 2
-        reasons.append("exclude:" + ",".join(exclusion_hits[:3]))
+    category_hits = {}
+    categories = rules.get("categories", {})
+    for cat_name, cat_config in categories.items():
+        terms = cat_config.get("terms", [])
+        weight = cat_config.get("weight", 0)
+        
+        # Match terms
+        hits = _matched_terms(text, set(terms))
+        category_hits[cat_name] = hits
+        
+        if hits:
+            score += weight
+            if weight < 0:
+                reasons.append(f"exclude:{','.join(hits[:3])}")
+            elif len(terms) > 20 or cat_name in ("human_study", "coupling"):
+                reasons.append(cat_config.get("label", cat_name.replace("_", "-")))
+            else:
+                reasons.append(f"{cat_name}:{','.join(hits[:3])}")
 
     penalty, penalty_reason = _citation_penalty(year, citations)
     score += penalty
     if penalty:
         reasons.append(penalty_reason)
 
-    if core_hits and metabolic_hits and population_hits:
+    tier_a_required_cats = [
+        cat_name for cat_name, cat_config in categories.items()
+        if cat_config.get("required_for_tier_a")
+    ]
+    
+    is_tier_a = False
+    if tier_a_required_cats:
+        is_tier_a = all(category_hits.get(cat) for cat in tier_a_required_cats)
+
+    if is_tier_a:
         tier = "A"
     elif score >= min_relevance:
         tier = "B"
@@ -421,7 +438,7 @@ def _candidate_tag_parts(tag: str) -> list[str]:
     return [part.strip() for part in tag.split(";") if part.strip()]
 
 
-def _filter_candidates(papers: list[dict], args, existing: set[str]) -> tuple[list[dict], int]:
+def _filter_candidates(papers: list[dict], args, existing: set[str], rules: dict | None = None) -> tuple[list[dict], int]:
     selected = []
     skipped = 0
     seen_dois = set()
@@ -440,7 +457,7 @@ def _filter_candidates(papers: list[dict], args, existing: set[str]) -> tuple[li
             continue
         tag = args.tag
         if args.screen:
-            screen = screen_paper(paper, args.min_relevance)
+            screen = screen_paper(paper, args.min_relevance, rules)
             reason = "; ".join(screen["reasons"]) or "no screen signals"
             if not screen["keep"]:
                 print(
@@ -601,6 +618,7 @@ def main():
     parser.add_argument("-t", "--tag", default="", help="导入后给条目添加的 Zotero 标签")
     parser.add_argument("-s", "--source", choices=["ss", "pubmed"], default="ss", help="文献检索源，支持 ss (Semantic Scholar) 或 pubmed (PubMed)")
     parser.add_argument("--screen", action="store_true", help="按标题/摘要做年份感知相关性筛选")
+    parser.add_argument("--screen-rules", default=None, help="筛选规则 JSON 文件路径")
     parser.add_argument("--min-relevance", type=int, default=4, help="--screen 模式下最低相关性分数")
     parser.add_argument("--ss-api-key", help="Semantic Scholar API Key (或用 SS_API_KEY 环境变量)")
     parser.add_argument("--pubmed-api-key", help="PubMed API Key (或用 PUBMED_API_KEY / NCBI_API_KEY 环境变量)")
@@ -633,8 +651,17 @@ def main():
         print("❌ 未找到匹配文献", flush=True)
         return
 
+    rules = None
+    if args.screen_rules:
+        import json
+        try:
+            rules = json.loads(Path(args.screen_rules).read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"❌ 无法加载筛选规则 JSON: {e}", flush=True)
+            sys.exit(1)
+
     existing = _get_existing_dois(zotero_dir=args.zotero_dir)
-    selected_papers, skipped = _filter_candidates(papers, args, existing)
+    selected_papers, skipped = _filter_candidates(papers, args, existing, rules)
 
     if args.web_import:
         try:

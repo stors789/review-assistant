@@ -7,6 +7,7 @@ normalizing findings schema, and AI reranking.
 import json
 import re
 import time
+import math
 from pathlib import Path
 from prompts import AI_CHUNK_RERANK_PROMPT
 import llm_client
@@ -240,7 +241,7 @@ Your task:
 
 Example output:
 {{
-  "search_terms": ["neural oscillations", "alpha band", "EEG", "cognitive aging", "sleep metabolism"]
+  "search_terms": ["retrieval-augmented generation", "vector embeddings", "hybrid search", "large language models"]
 }}
 """
         try:
@@ -365,7 +366,9 @@ def should_ai_rerank_chunks(chunks: list[dict]) -> tuple[bool, str]:
 
 def build_evidence_pack(text: str, question: str, max_chars: int = 80000,
                         ai_rerank: bool = False, rerank_client = None,
-                        rerank_model: str = "deepseek-v4-flash") -> tuple[str, dict]:
+                        rerank_model: str = "deepseek-v4-flash",
+                        use_vector_search: bool = False, pdf_hash: str | None = None,
+                        cache_dir: Path | None = None) -> tuple[str, dict]:
     """Build a bounded, traceable evidence pack."""
     terms = extract_question_terms(question, rerank_client, rerank_model)
     structural_chunks = split_text_chunks(text)
@@ -379,6 +382,32 @@ def build_evidence_pack(text: str, question: str, max_chars: int = 80000,
         item["score"] = score
         item["hits"] = hits
         scored.append(item)
+
+    # ── Hybrid Vector Search Semantic Reranking ──
+    if use_vector_search:
+        if not pdf_hash:
+            import hashlib
+            pdf_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if not cache_dir:
+            cache_dir = Path("cache")
+        try:
+            import llm_client
+            emb_client = llm_client.get_embedding_client()
+            query_emb = llm_client.get_embedding(emb_client, question)
+            chunk_embs = load_or_compute_embeddings(pdf_hash, scored, cache_dir, emb_client)
+            
+            for chunk in scored:
+                cid = chunk["chunk_id"]
+                if cid in chunk_embs and chunk_embs[cid] is not None:
+                    sim = cosine_similarity(query_emb, chunk_embs[cid])
+                    chunk["vector_similarity"] = sim
+                    # Boost chunk score by vector similarity * 10
+                    chunk["score"] += sim * 10
+                else:
+                    chunk["vector_similarity"] = 0.0
+        except Exception as e:
+            print(f"      ⚠ 向量语义排序初始化失败，降级为常规关键字检索: {e}", flush=True)
+            use_vector_search = False
 
     selected_ids = set()
     non_reference_scored = [c for c in scored if c.get("section") != "references"]
@@ -481,6 +510,8 @@ def build_evidence_pack(text: str, question: str, max_chars: int = 80000,
         "ai_rerank": ai_meta,
         "included_chunks": included_chunks,
     }
+    if use_vector_search:
+        coverage["vector_search"] = {"enabled": True}
 
     pack = (
         "以下是程序从全文构造的 EvidencePack，不一定覆盖全文。"
@@ -617,3 +648,55 @@ def normalize_finding_relevance(result: dict) -> dict:
     result["findings"] = cleaned
     result["relevant"] = bool(result.get("relevant", False) or has_usable)
     return result
+
+
+def load_or_compute_embeddings(pdf_hash: str, chunks: list[dict], cache_dir: Path, emb_client) -> dict[str, list[float]]:
+    """Load cached embeddings for chunks of a PDF, or compute and save them."""
+    cache_path = cache_dir / f"{pdf_hash[:16]}.embeddings.json"
+    cached = {}
+    if cache_path.exists():
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    missing = []
+    for c in chunks:
+        cid = c["chunk_id"]
+        import hashlib
+        ctext_hash = hashlib.sha256(c["text"].encode("utf-8")).hexdigest()[:16]
+        
+        if cid in cached and cached[cid].get("hash") == ctext_hash:
+            c["embedding"] = cached[cid]["vector"]
+        else:
+            missing.append((c, cid, ctext_hash))
+
+    if missing:
+        import llm_client
+        for c, cid, ctext_hash in missing:
+            try:
+                emb = llm_client.get_embedding(emb_client, c["text"])
+                c["embedding"] = emb
+                cached[cid] = {"hash": ctext_hash, "vector": emb}
+            except Exception as e:
+                # Fail silently for this chunk, fallback to None
+                c["embedding"] = None
+
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(cached, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+    return {c["chunk_id"]: c.get("embedding") for c in chunks if c.get("embedding") is not None}
+
+
+def cosine_similarity(v1: list[float], v2: list[float]) -> float:
+    """Calculate the cosine similarity between two vectors."""
+    dot_product = sum(a * b for a, b in zip(v1, v2))
+    magnitude1 = math.sqrt(sum(a * a for a in v1))
+    magnitude2 = math.sqrt(sum(b * b for b in v2))
+    if not magnitude1 or not magnitude2:
+        return 0.0
+    return dot_product / (magnitude1 * magnitude2)
+
