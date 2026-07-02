@@ -251,6 +251,5 @@ export ZOTERO_LINKED_PREFIX_MAP="C:\Users\eros\= >/Users/eros/"
 
 - 项目 README：[README.md](./README.md)
 - 技能指令（给 AI 看的）：[SKILL.md](./SKILL.md)
-- 开发备忘：[TODO.md](./TODO.md)
+- 文档索引与历史归档：[docs/README.md](./docs/README.md)
 - 更新日志：[CHANGELOG.md](./CHANGELOG.md)
-- 设计文档：`specs/` 目录

@@ -13,9 +13,10 @@ All notable changes to this project will be documented in this file.
 - **Zotero Web API Configuration**: Added environment variables `ZOTERO_API_KEY`, `ZOTERO_LIBRARY_TYPE`, `ZOTERO_LIBRARY_ID`, `ZOTERO_WEB_IMPORT`, and `ZOTERO_SYNC_TIMEOUT`.
 
 ### Changed
+- **Documentation Cleanup**: Moved completed TODOs and historical design specs into `docs/archive/`, added a docs index, and trimmed README/SKILL down to current user-facing and agent-facing guidance.
 - **Proxy Handling Is Configurable**: Kept the previous default proxy-stripping behavior for compatibility, but added `REVIEW_ASSISTANT_USE_PROXY=true` to preserve system proxy variables when needed.
 - **auto_lit Import Path**: `auto_lit.py` now keeps RIS generation as the default fallback while supporting no-dialog Web API import when configured.
-- **Documentation Updates**: Updated README, SKILL, TODO, and setup guidance to document configuration variables, Web API import, and the current remaining portability risks.
+- **Documentation Updates**: Updated setup guidance to document configuration variables, Web API import, and portability notes.
 
 ### Fixed
 - **Same-name PDF Mapping Bug**: `pipeline.py` and `verification.py` no longer use bare filename to map results back to papers. Result dicts now carry `pdf_path` (full path) alongside `file` (display name), and all lookups, sorting, and retries use the full path to avoid collisions when Zotero storage directories contain identical filenames.
