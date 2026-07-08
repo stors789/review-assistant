@@ -74,8 +74,8 @@ class AutoLitScreenTests(unittest.TestCase):
         original_ss = auto_lit._search_ss
         original_pubmed = auto_lit._search_pubmed
         try:
-            auto_lit._search_ss = lambda q, l: [{"title": "SS paper"}]
-            auto_lit._search_pubmed = lambda q, l: [{"title": "PubMed paper"}]
+            auto_lit._search_ss = lambda q, l, **kwargs: [{"title": "SS paper"}]
+            auto_lit._search_pubmed = lambda q, l, **kwargs: [{"title": "PubMed paper"}]
             
             res_ss = auto_lit._search("query", "ss", 5)
             self.assertEqual(res_ss[0]["title"], "SS paper")

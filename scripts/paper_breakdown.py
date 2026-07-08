@@ -115,6 +115,10 @@ def process_pdfs(pdf_paths: list[Path], output_dir: Path, model: str, api_key: s
             with print_lock:
                 print(f"  -> API调用失败 (attempts={e.attempts}): {e}")
             return {"file": pdf_path.name, "error": str(e)}
+        except Exception as e:
+            with print_lock:
+                print(f"  -> 未知错误: {e}")
+            return {"file": pdf_path.name, "error": str(e)}
 
     clients = workers
     with ThreadPoolExecutor(max_workers=clients) as executor:
