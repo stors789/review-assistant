@@ -9,7 +9,8 @@ import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from utils import extract_pdf_text, file_sha256
+from utils import file_sha256
+from extraction import prepare_pdf_text, build_extraction_prompt
 from errors import PDFExtractionError, LLMCallError
 from prompts import (
     STEP1_SYSTEM,
@@ -25,7 +26,6 @@ from prompts import (
 import llm_client
 from caching import findings_cache_key, FINDINGS_CACHE_VERSION
 from evidence_pack import (
-    build_evidence_pack,
     normalize_finding_relevance,
     format_finding_metadata,
 )
@@ -44,39 +44,25 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
     cache_key = pdf_hash[:16]
 
     text_cache_path = text_cache_dir / f"{cache_key}.txt"
-    if text_cache_path.exists():
-        text = text_cache_path.read_text(encoding="utf-8")
-        cached = True
-    else:
-        try:
-            text = extract_pdf_text(pdf_path)
-            text_cache_dir.mkdir(parents=True, exist_ok=True)
-            text_cache_path.write_text(text, encoding="utf-8")
-            cached = False
-        except PDFExtractionError as e:
-            with print_lock:
-                print(f"  [{idx}/{total}] {stem} -> ⚠ PDF提取失败: {e}", flush=True)
-            return {"file": pdf_path.name, "pdf_path": str(pdf_path), "relevant": False,
-                    "findings": [], "error": str(e),
-                    "ref_title": meta.get("title", ""), "ref_authors": meta.get("authors", ""),
-                    "ref_year": meta.get("year", ""), "ref_num": meta.get("ref_num", 0)}
+    from_cache = text_cache_path.exists()
+    try:
+        text = prepare_pdf_text(pdf_path, text_cache_dir)
+    except PDFExtractionError as e:
+        with print_lock:
+            print(f"  [{idx}/{total}] {stem} -> ⚠ PDF提取失败: {e}", flush=True)
+        return {"file": pdf_path.name, "pdf_path": str(pdf_path), "relevant": False,
+                "findings": [], "error": str(e),
+                "ref_title": meta.get("title", ""), "ref_authors": meta.get("authors", ""),
+                "ref_year": meta.get("year", ""), "ref_num": meta.get("ref_num", 0)}
 
-    max_chars = 80000
-    coverage = None
-    if use_evidence_pack:
-        prompt_text, coverage = build_evidence_pack(
-            text,
-            question,
-            max_chars=max_chars,
-            ai_rerank=ai_rerank_chunks,
-            rerank_client=client,
-            rerank_model=model,
-            use_vector_search=use_vector_search,
-            pdf_hash=pdf_hash,
-            cache_dir=text_cache_dir,
-        )
-    else:
-        prompt_text = text[:max_chars] if len(text) > max_chars else text
+    prompt_text, coverage = build_extraction_prompt(
+        text, question,
+        use_evidence_pack=use_evidence_pack,
+        ai_rerank_chunks=ai_rerank_chunks,
+        use_vector_search=use_vector_search,
+        client=client, model=model,
+        pdf_hash=pdf_hash, cache_dir=text_cache_dir,
+    )
 
     fcache_key = findings_cache_key(pdf_path, question, model, use_evidence_pack, ai_rerank_chunks, use_vector_search)
     fcache_path = findings_dir / f"{fcache_key}.json" if findings_dir else None
@@ -107,7 +93,7 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
     result = normalize_finding_relevance(result)
     relevant = result.get("relevant", False)
     findings = result.get("findings", [])
-    source = "缓存" if cached else "提取"
+    source = "缓存" if from_cache else "提取"
     charset = len(prompt_text)
     input_mode = "EvidencePack+AI重排" if use_evidence_pack and ai_rerank_chunks else ("EvidencePack" if use_evidence_pack else "全文前缀")
 
