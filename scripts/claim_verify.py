@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import llm_client
 from config import get_api_key, get_base_url, get_model, get_zotero_dir, DEFAULT_FLASH_MODEL
 from utils import extract_text
+from errors import PDFExtractionError, LLMCallError
 from zotero_reader import ZoteroReader
 
 CLAIM_DECOMPOSE_PROMPT = """你是一位严谨的学术编辑。请将以下段落拆解为若干独立且可验证的学术主张，每一条是一个完整的陈述句。
@@ -98,7 +99,9 @@ def match_papers(client, claim, papers, model, top_k):
     try:
         result = llm_client.call_json(client, "你是一个输出 JSON 的助手。", prompt, model, 1024)
         return result.get("relevant_indices", [])
-    except Exception:
+    except LLMCallError as e:
+        print(f"  ⚠ 论文匹配失败 (attempts={e.attempts}): {e}，回退至前{min(top_k, len(papers))}篇",
+              file=sys.stderr, flush=True)
         return list(range(min(top_k, len(papers))))  # fallback: first N
 
 
@@ -164,7 +167,7 @@ def main():
         try:
             text = extract_text(Path(p["pdf_path"]))
             paper_data.append({**p, "text": text, "text_len": len(text)})
-        except Exception as e:
+        except PDFExtractionError as e:
             print(f"   ⚠ 跳过 {p['title'][:50]}: {e}", flush=True)
     print(f"   成功提取 {len(paper_data)} 篇", flush=True)
 
@@ -194,8 +197,8 @@ def main():
                 v["paper_doi"] = paper["doi"]
                 claim_verifications.append(v)
                 print(f"     {paper['title'][:35]}... → {v['support']}", flush=True)
-            except Exception as e:
-                print(f"     ⚠ {paper['title'][:35]}... 失败: {e}", flush=True)
+            except LLMCallError as e:
+                print(f"     ⚠ {paper['title'][:35]}... API失败 (attempts={e.attempts}): {e}", flush=True)
 
         report["claims"].append({"claim": claim, "verifications": claim_verifications})
 
