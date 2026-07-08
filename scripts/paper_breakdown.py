@@ -13,6 +13,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from utils import extract_text
+from errors import PDFExtractionError, LLMCallError
 import llm_client
 from config import get_api_key, get_base_url, get_model, get_workers, get_zotero_dir, DEFAULT_FLASH_MODEL
 
@@ -106,9 +107,13 @@ def process_pdfs(pdf_paths: list[Path], output_dir: Path, model: str, api_key: s
 
             return result
 
-        except Exception as e:
+        except PDFExtractionError as e:
             with print_lock:
-                print(f"  -> 失败: {e}")
+                print(f"  -> PDF提取失败: {e}")
+            return {"file": pdf_path.name, "error": str(e)}
+        except LLMCallError as e:
+            with print_lock:
+                print(f"  -> API调用失败 (attempts={e.attempts}): {e}")
             return {"file": pdf_path.name, "error": str(e)}
 
     clients = workers
