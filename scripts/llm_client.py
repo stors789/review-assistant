@@ -9,7 +9,7 @@ import json
 import itertools
 import threading
 from openai import OpenAI
-from config import DEFAULT_BASE_URL, get_api_key, should_strip_proxy
+from config import DEFAULT_BASE_URL, DEFAULT_FLASH_MODEL, get_api_key, should_strip_proxy
 from errors import LLMCallError
 
 
@@ -183,7 +183,7 @@ def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: in
     ) from last_err
 
 
-def call_json_light(client: OpenAI, system: str, user: str, model: str = "deepseek-v4-flash",
+def call_json_light(client: OpenAI, system: str, user: str, model: str = DEFAULT_FLASH_MODEL,
                     max_tokens: int = 16384, retries: int = 2) -> dict:
     """Lightweight JSON extraction without reasoning, suitable for validation to prevent output truncation."""
     last_err = None
