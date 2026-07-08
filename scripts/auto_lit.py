@@ -43,12 +43,11 @@ from config import (
 from zotero_web import ZoteroWebClient, ZoteroWebError, wait_for_local_dois
 
 SS_API = "https://api.semanticscholar.org/graph/v1/paper/search"
-SS_KEY = os.environ.get("SS_API_KEY", "")
 SS_FIELDS = "title,authors,year,externalIds,journal,publicationDate,abstract,citationCount,openAccessPdf"
 
 PUBMED_SEARCH_API = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 PUBMED_FETCH_API = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-PUBMED_KEY = os.environ.get("PUBMED_API_KEY", "") or os.environ.get("NCBI_API_KEY", "")
+
 
 from datetime import datetime
 
@@ -114,31 +113,31 @@ DEFAULT_SCREENING_RULES = {
 }
 
 
-def _search(query: str, source: str = "ss", limit: int = 20) -> list[dict]:
+def _search(query: str, source: str = "ss", limit: int = 20, ss_key: str = "", pubmed_key: str = "") -> list[dict]:
     """搜索文献。支持 Semantic Scholar (ss) 和 PubMed (pubmed)。"""
     if source == "pubmed":
-        return _search_pubmed(query, limit)
+        return _search_pubmed(query, limit, pubmed_key=pubmed_key)
     
-    papers = _search_ss(query, limit)
+    papers = _search_ss(query, limit, ss_key=ss_key)
     if not papers:
         print("  ❌ SS 搜索失败，终止（未切换 OpenAlex）", flush=True)
         sys.exit(1)
     return papers
 
 
-def _search_pubmed(query: str, limit: int = 20) -> list[dict]:
+def _search_pubmed(query: str, limit: int = 20, pubmed_key: str = "") -> list[dict]:
     """从 PubMed 搜索文献并获取详细信息。"""
     import xml.etree.ElementTree as ET
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/120.0.0.0",
     }
-    if PUBMED_KEY:
-        headers["NCBI-API-Key"] = PUBMED_KEY
+    if pubmed_key:
+        headers["NCBI-API-Key"] = pubmed_key
         
     # Rate limit: with API key we can do 10 req/sec (0.1s delay is safe, we use 0.2s).
     # Without key, limit is 3 req/sec (we use 1.5s delay).
-    delay = 0.2 if PUBMED_KEY else 1.5
+    delay = 0.2 if pubmed_key else 1.5
     
     # 1. Search PMIDs
     print("  🔍 正在从 PubMed 搜索 PMIDs...", flush=True)
@@ -274,7 +273,7 @@ def _search_pubmed(query: str, limit: int = 20) -> list[dict]:
     return papers
 
 
-def _search_ss(query: str, limit: int = 20) -> list[dict]:
+def _search_ss(query: str, limit: int = 20, ss_key: str = "") -> list[dict]:
     # 文件锁限流：确保两次 API 调用间隔 ≥ 1.5 秒，跨进程生效
     _SS_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     with _SS_LOCK_FILE.open("a+", encoding="utf-8") as lock:
@@ -306,7 +305,9 @@ def _search_ss(query: str, limit: int = 20) -> list[dict]:
 
     url = f"{SS_API}?query={quote(query)}&limit={limit}&fields={quote(SS_FIELDS)}"
     try:
-        request_kwargs = {"headers": {"x-api-key": SS_KEY}, "timeout": 15}
+        request_kwargs = {"timeout": 15}
+        if ss_key:
+            request_kwargs["headers"] = {"x-api-key": ss_key}
         if should_strip_proxy():
             request_kwargs["proxies"] = {"http": None, "https": None}
         r = requests.get(url, **request_kwargs)
@@ -657,16 +658,13 @@ def main():
     args = parser.parse_args()
 
 
-    global SS_KEY, PUBMED_KEY
-    if args.ss_api_key:
-        SS_KEY = args.ss_api_key
-    if args.pubmed_api_key:
-        PUBMED_KEY = args.pubmed_api_key
+    ss_key = args.ss_api_key if args.ss_api_key else os.environ.get("SS_API_KEY", "")
+    pubmed_key = args.pubmed_api_key if args.pubmed_api_key else os.environ.get("PUBMED_API_KEY", "") or os.environ.get("NCBI_API_KEY", "")
 
     output = Path(args.output) if args.output else Path(f"lit_{args.tag or uuid.uuid4().hex[:8]}.ris")
 
     print(f"🔍 搜索 ({args.source}): \"{args.keywords}\"", flush=True)
-    papers = _search(args.keywords, args.source, args.limit)
+    papers = _search(args.keywords, args.source, args.limit, ss_key=ss_key, pubmed_key=pubmed_key)
     if not papers:
         print("❌ 未找到匹配文献", flush=True)
         return
