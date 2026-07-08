@@ -9,15 +9,20 @@ import re
 import threading
 from pathlib import Path
 from utils import file_sha256, chunk_text
-from errors import LLMCallError
+from errors import LLMCallError, PDFExtractionError
 import llm_client
 from prompts import (
+    STEP1_SYSTEM,
     VERIFY_CITATION_PROMPT,
     VERIFY_LOGIC_PROMPT,
     CLAIM_MAP_EXTRACT_PROMPT,
     CLAIM_MAP_CHECK_PROMPT,
     STEP6_FIX_PROMPT
 )
+
+from extraction import prepare_pdf_text, build_extraction_prompt
+from evidence_pack import normalize_finding_relevance
+from caching import findings_cache_key, FINDINGS_CACHE_VERSION
 
 
 def verify_findings(all_results: list[dict], papers: list[dict],
@@ -94,9 +99,6 @@ def verify_findings(all_results: list[dict], papers: list[dict],
         print(f"  ✅ 全部通过", flush=True)
         return all_results
 
-    # Lazy import to avoid circular dependency
-    from pipeline import step1_extract_single
-
     total = len(papers)
     print(f"  🔄 {len(retry_files)} 篇失败，开始重提取（最多2轮）", flush=True)
     for attempt in range(2):
@@ -111,12 +113,68 @@ def verify_findings(all_results: list[dict], papers: list[dict],
             meta = {"title": paper.get("ref_title", ""), "authors": paper.get("ref_authors", ""),
                     "year": paper.get("ref_year", ""), "ref_num": paper.get("ref_num", 0)}
             client = client_factory()
-            new = step1_extract_single(client, pdf_path, meta, question, extraction_model,
-                                       text_cache_dir, print_lock, i + 1, total, findings_dir,
-                                       force_refresh=True,
-                                       use_evidence_pack=use_evidence_pack,
-                                       ai_rerank_chunks=ai_rerank_chunks,
-                                       use_vector_search=use_vector_search)
+
+            # Re-extraction using shared extraction functions + direct LLM call
+            try:
+                text = prepare_pdf_text(pdf_path, text_cache_dir)
+            except PDFExtractionError as e:
+                with print_lock:
+                    print(f"  [{i+1}/{total}] {pdf_path.name[:40]}... -> ⚠ PDF提取失败: {e}", flush=True)
+                still_bad.add(result_pdf_path)
+                continue
+
+            pdf_hash = file_sha256(pdf_path)
+            prompt_text, coverage = build_extraction_prompt(
+                text, question,
+                use_evidence_pack=use_evidence_pack,
+                ai_rerank_chunks=ai_rerank_chunks,
+                use_vector_search=use_vector_search,
+                client=client, model=extraction_model,
+                pdf_hash=pdf_hash, cache_dir=text_cache_dir,
+            )
+
+            user_prompt = (
+                f"论文信息: {meta.get('authors', '')} ({meta.get('year', '')}). {meta.get('title', '')}\n\n"
+                f"论文文本输入：\n{prompt_text}\n\n"
+                f"请根据上述论文文本，提取与以下研究问题相关的发现：\n研究问题：{question}"
+            )
+            try:
+                raw_result = llm_client.call_json(client, STEP1_SYSTEM, user_prompt, extraction_model, 16384)
+            except LLMCallError as e:
+                with print_lock:
+                    print(f"  [{i+1}/{total}] {pdf_path.name[:40]}... -> ⚠ API失败: {e}", flush=True)
+                still_bad.add(result_pdf_path)
+                continue
+
+            raw_result = normalize_finding_relevance(raw_result)
+            relevant = raw_result.get("relevant", False)
+            findings = raw_result.get("findings", [])
+
+            fcache_key = findings_cache_key(pdf_path, question, extraction_model, use_evidence_pack, ai_rerank_chunks, use_vector_search)
+            new = {
+                "file": pdf_path.name, "pdf_path": str(pdf_path),
+                "relevant": relevant, "findings": findings,
+                "ref_title": meta.get("title", ""), "ref_authors": meta.get("authors", ""),
+                "ref_year": meta.get("year", ""), "ref_num": meta.get("ref_num", 0),
+                "cache": {
+                    "version": FINDINGS_CACHE_VERSION,
+                    "key": fcache_key,
+                    "pdf_sha256": pdf_hash,
+                    "question": question,
+                    "model": extraction_model,
+                    "input_mode": "evidence_pack" if use_evidence_pack else "full_prefix",
+                    "ai_rerank_chunks": bool(ai_rerank_chunks and use_evidence_pack),
+                    "use_vector_search": bool(use_vector_search and use_evidence_pack),
+                },
+            }
+            if coverage:
+                new["evidence_pack"] = coverage
+
+            if findings_dir:
+                findings_dir.mkdir(parents=True, exist_ok=True)
+                (findings_dir / f"{fcache_key}.json").write_text(
+                    json.dumps(new, ensure_ascii=False, indent=2), encoding="utf-8")
+
             if new.get("relevant") and new.get("findings"):
                 all_results[i] = new
                 print(f"  ✅ 重提取成功: {pdf_path.name[:40]}...", flush=True)
