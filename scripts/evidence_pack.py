@@ -10,6 +10,7 @@ import time
 import math
 import sys
 from pathlib import Path
+from config import get_rerank_model
 from prompts import AI_CHUNK_RERANK_PROMPT
 import llm_client
 
@@ -369,7 +370,7 @@ def should_ai_rerank_chunks(chunks: list[dict]) -> tuple[bool, str]:
 
 def build_evidence_pack(text: str, question: str, max_chars: int = 80000,
                         ai_rerank: bool = False, rerank_client = None,
-                        rerank_model: str = "deepseek-v4-flash",
+                        rerank_model: str = get_rerank_model(),
                         use_vector_search: bool = False, pdf_hash: str | None = None,
                         cache_dir: Path | None = None) -> tuple[str, dict]:
     """Build a bounded, traceable evidence pack."""
@@ -708,4 +709,3 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     if not magnitude1 or not magnitude2:
         return 0.0
     return dot_product / (magnitude1 * magnitude2)
-
