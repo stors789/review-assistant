@@ -1,0 +1,896 @@
+{
+  "title": "衰老视角下腺苷与甲基化途径的交联：从代谢失衡到表观遗传调控",
+  "sections": [
+    {
+      "heading": "一、腺苷–甲硫氨酸循环失衡与衰老相关的甲基化障碍",
+      "subsections": [
+        {
+          "heading": "1.1 SAHH/AHCY 活性受损与 SAH 蓄积驱动的细胞衰老",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "SAHH inhibition",
+                "SAH accumulation",
+                "AHCY deficiency",
+                "SAH hydrolase inhibition"
+              ],
+              "predicate": [
+                "induces",
+                "promotes",
+                "elevates",
+                "associated with",
+                "leads to"
+              ],
+              "object": [
+                "cellular senescence",
+                "SA-β-gal",
+                "p16",
+                "p21",
+                "p53",
+                "replicative senescence"
+              ],
+              "direction": [
+                "increase",
+                "decrease"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "in vitro",
+                "in vivo",
+                "experimental study",
+                "case-control"
+              ],
+              "sample_or_system": [
+                "RASMCs",
+                "HUVECs",
+                "endothelial cells",
+                "BMSCs",
+                "mouse aorta",
+                "diabetic BMSCs"
+              ],
+              "condition": [
+                "SAHH inhibition",
+                "SAH elevation",
+                "replicative senescence",
+                "diabetes"
+              ],
+              "method": [
+                "SA-β-gal staining",
+                "western blot",
+                "co-culture",
+                "RNAi"
+              ]
+            },
+            "variables": [
+              "SAH",
+              "SAHH",
+              "SAM/SAH ratio",
+              "cellular senescence",
+              "p16",
+              "p21",
+              "p53",
+              "SA-β-gal",
+              "replicative senescence"
+            ],
+            "topic_tags": {
+              "molecule": [
+                "SAH",
+                "SAHH"
+              ],
+              "process": [
+                "senescence"
+              ],
+              "pathway": [
+                "methionine cycle",
+                "transmethylation"
+              ]
+            }
+          }
+        },
+        {
+          "heading": "1.2 升高的 SAH 通过抑制 DNA/组蛋白甲基化促进血管衰老及退行性变",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "SAH",
+                "SAHH inhibition",
+                "elevated SAH"
+              ],
+              "predicate": [
+                "inhibits",
+                "decreases",
+                "promotes demethylation",
+                "leads to hypomethylation"
+              ],
+              "object": [
+                "DNA methylation",
+                "histone methylation",
+                "DNMT1",
+                "H3K4me3",
+                "NF-κB promoter methylation",
+                "Drp1 promoter methylation",
+                "vascular senescence",
+                "atherosclerosis"
+              ],
+              "direction": [
+                "decrease",
+                "increase"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "in vitro",
+                "in vivo",
+                "clinical study",
+                "review"
+              ],
+              "sample_or_system": [
+                "RASMCs",
+                "HUVECs",
+                "endothelial cells",
+                "SAHH+/- mice",
+                "patients with vascular disease"
+              ],
+              "condition": [
+                "SAHH inhibition by ADA or siRNA",
+                "SAH elevation",
+                "vascular disease",
+                "atherosclerosis"
+              ],
+              "method": [
+                "bisulfite sequencing",
+                "ChIP-qPCR",
+                "mass spectrometry",
+                "west–rn blot"
+              ]
+            },
+            "variables": [
+              "SAH",
+              "DNA methylation",
+              "histone methylation",
+              "DNMT1",
+              "H3K4me3",
+              "NF-κB",
+              "Drp1",
+              "hTERT",
+              "vascular aging"
+            ],
+            "topic_tags": {
+              "pathway": [
+                "transmethylation",
+                "epigenetic regulation"
+              ],
+              "molecule": [
+                "SAH"
+              ],
+              "disease": [
+                "vascular aging",
+                "atherosclerosis"
+              ]
+            }
+          }
+        },
+        {
+          "heading": "1.3 SAM/SAH 平衡与寿命调节：从低等模式生物到哺乳动物的保守机制",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "AHCY-1 mutation",
+                "SAH supplementation",
+                "SAM/SAH ratio",
+                "AHCY/SAHH modulation"
+              ],
+              "predicate": [
+                "extends",
+                "shortens",
+                "is required for",
+                "regulates"
+              ],
+              "object": [
+                "lifespan",
+                "longevity",
+                "AMPK activation",
+                "methionine restriction-like state"
+              ],
+              "direction": [
+                "increase",
+                "decrease"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "in vivo genetic manipulation",
+                "lifespan assay",
+                "metabolomics",
+                "genetic epistasis"
+              ],
+              "sample_or_system": [
+                "C. elegans",
+                "Drosophila melanogaster",
+                "model organisms"
+              ],
+              "condition": [
+                "AHCY-1 Y145C mutation",
+                "SAH supplementation",
+                "insulin receptor mutant"
+              ],
+              "method": [
+                "LC-MS/MS metabolomics",
+                "survival analysis",
+                "RNAi"
+              ]
+            },
+            "variables": [
+              "SAM/SAH ratio",
+              "SAH",
+              "AHCY/SAHH activity",
+              "AMPK/AAK-2",
+              "VRK-1",
+              "DAF-16",
+              "lifespan",
+              "longevity"
+            ],
+            "topic_tags": {
+              "pathway": [
+                "methionine cycle",
+                "AMPK signaling",
+                "insulin/IGF-1 signaling"
+              ],
+              "organism": [
+                "C. elegans",
+                "Drosophila"
+              ],
+              "process": [
+                "longevity determination"
+              ]
+            }
+          }
+        },
+        {
+          "heading": "1.4 腺苷代谢扰动与转甲基途径的交叉：机制框架与疾病关联",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "adenosine",
+                "deoxyadenosine",
+                "ADK",
+                "ADA deficiency"
+              ],
+              "predicate": [
+                "regulates",
+                "inactivates",
+                "links to",
+                "inhibits"
+              ],
+              "object": [
+                "transmethylation pathway",
+                "SAHH",
+                "SAH accumulation",
+                "SAM-dependent methylation"
+              ],
+              "direction": [
+                "negative_association",
+                "increase"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "review",
+                "background",
+                "opinion/article hypothesis"
+              ],
+              "sample_or_system": [
+                "brain",
+                "immune cells",
+                "ADA-deficient cells"
+              ],
+              "condition": [
+                "epilepsy",
+                "ADA deficiency",
+                "aging"
+              ],
+              "method": [
+                "literature review"
+              ]
+            },
+            "variables": [
+              "adenosine",
+              "deoxyadenosine",
+              "SAHH",
+              "SAH",
+              "transmethylation reactions"
+            ],
+            "topic_tags": {
+              "pathway": [
+                "adenosine metabolism",
+                "transmethylation"
+              ],
+              "molecule": [
+                "adenosine",
+                "SAH"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "heading": "二、RNA N6-甲基腺苷（m6A）修饰在衰老中的多重角色",
+      "subsections": [
+        {
+          "heading": "2.1 m6A 修饰酶与阅读蛋白的年龄依赖性变化及其组织特异性",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "age",
+                "aging"
+              ],
+              "predicate": [
+                "up-regulates",
+                "down-regulates",
+                "alters"
+              ],
+              "object": [
+                "FTO",
+                "ALKBH5",
+                "m6A level",
+                "METTL3",
+                "METTL14"
+              ],
+              "direction": [
+                "increase",
+                "decrease"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "experimental study",
+                "review"
+              ],
+              "sample_or_system": [
+                "mouse tissues",
+                "human PBMCs",
+                "cynomolgus monkey skeletal muscle",
+                "BMSCs"
+              ],
+              "condition": [
+                "aging",
+                "young vs old",
+                "osteoporosis"
+              ],
+              "method": [
+                "western blot",
+                "LC-MS/MS",
+                "m6A quantification"
+              ]
+            },
+            "variables": [
+              "FTO protein",
+              "ALKBH5 protein",
+              "global m6A",
+              "aging",
+              "tissue type"
+            ],
+            "topic_tags": {
+              "modification_type": [
+                "m6A"
+              ],
+              "molecule": [
+                "FTO",
+                "ALKBH5",
+                "METTL3"
+              ],
+              "process": [
+                "aging"
+              ]
+            }
+          }
+        },
+        {
+          "heading": "2.2 m6A 修饰调控细胞衰老的核心程序与 SASP",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "m6A modification",
+                "METTL3",
+                "WTAP",
+                "IGF2BP1",
+                "YTHDF2"
+              ],
+              "predicate": [
+                "regulates",
+                "promotes",
+                "suppresses",
+                "drives"
+              ],
+              "object": [
+                "cellular senescence",
+                "SASP",
+                "p53",
+                "p16-RB",
+                "NF-κB",
+                "spermatogonial senescence",
+                "osteoblast senescence",
+                "PDLSC senescence",
+                "NP cell senescence"
+              ],
+              "direction": [
+                "increase",
+                "decrease"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "experimental study",
+                "review"
+              ],
+              "sample_or_system": [
+                "senescent cells",
+                "osteoblasts",
+                "spermatogonia",
+                "PDLSCs",
+                "NP cells",
+                "HCC cells"
+              ],
+              "condition": [
+                "replicative senescence",
+                "arsenic exposure",
+                "periodontitis",
+                "IVDD",
+                "oxidative stress"
+              ],
+              "method": [
+                "SA-β-gal",
+                "western blot",
+                "MeRIP",
+                "RNAi"
+              ]
+            },
+            "variables": [
+              "m6A",
+              "p53",
+              "p21",
+              "p16",
+              "SASP factors",
+              "ETS2",
+              "TP53BP1",
+              "NF-κB",
+              "senescence"
+            ],
+            "topic_tags": {
+              "modification_type": [
+                "m6A"
+              ],
+              "process": [
+                "cellular senescence",
+                "SASP"
+              ],
+              "pathway": [
+                "p53/p21",
+                "p16-RB",
+                "NF-κB"
+              ]
+            }
+          }
+        },
+        {
+          "heading": "2.3 m6A 在成体干细胞分化与年龄相关退行性疾病中的作用",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "m6A modification",
+                "METTL3",
+                "FTO",
+                "IMP2",
+                "WTAP"
+              ],
+              "predicate": [
+                "regulates",
+                "promotes",
+                "suppresses",
+                "is critical for"
+              ],
+              "object": [
+                "BMSC osteogenic differentiation",
+                "BMSC adipogenic differentiation",
+                "cardiac fibrosis",
+                "atherosclerosis",
+                "osteoporosis",
+                "bone remodelling"
+              ],
+              "direction": [
+                "increase",
+                "decrease",
+                "mixed"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "experimental study",
+                "review"
+              ],
+              "sample_or_system": [
+                "BMSCs",
+                "osteoblasts",
+                "osteoclasts",
+                "cardiac fibroblasts",
+                "endothelial cells",
+                "OVX mouse model"
+              ],
+              "condition": [
+                "aging",
+                "osteoporosis",
+                "cardiac fibrosis",
+                "myocardial infarction",
+                "atherosclerosis",
+                "estrogen deficiency"
+              ],
+              "method": [
+                "MeRIP-PCR",
+                "RNAi",
+                "overexpression",
+                "SA-β-gal",
+                "differentiation assays"
+              ]
+            },
+            "variables": [
+              "m6A",
+              "FTO",
+              "METTL3",
+              "IMP2",
+              "WTAP",
+              "osteogenic differentiation",
+              "adipogenic differentiation",
+              "cardiac fibrosis",
+              "atherosclerosis"
+            ],
+            "topic_tags": {
+              "modification_type": [
+                "m6A"
+              ],
+              "disease": [
+                "osteoporosis",
+                "cardiac fibrosis",
+                "atherosclerosis"
+              ],
+              "cell_type": [
+                "BMSC",
+                "cardiac fibroblast",
+                "endothelial cell"
+              ]
+            }
+          }
+        },
+        {
+          "heading": "2.4 m6A 与端粒/端粒酶调控：连接 RNA 修饰与细胞衰老",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "TERC m6A",
+                "METTL3",
+                "YTHDC1",
+                "ALKBH5"
+              ],
+              "predicate": [
+                "decreases",
+                "disrupts",
+                "impairs",
+                "rescues"
+              ],
+              "object": [
+                "telomerase activity",
+                "telomere length",
+                "TERT-TERC interaction",
+                "telomere homeostasis"
+              ],
+              "direction": [
+                "decrease",
+                "increase"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "experimental study",
+                "review"
+              ],
+              "sample_or_system": [
+                "human AECs",
+                "U2OS cells",
+                "multiple cancers"
+              ],
+              "condition": [
+                "METTL3 depletion",
+                "YTHDC1 knockdown",
+                "TERC mutation",
+                "pulmonary fibrosis"
+              ],
+              "method": [
+                "MeRIP-qPCR",
+                "TRAP assay",
+                "Southern blot",
+                "co-IP"
+              ]
+            },
+            "variables": [
+              "TERC m6A",
+              "METTL3",
+              "YTHDC1",
+              "telomerase activity",
+              "telomere length",
+              "TERRA stability"
+            ],
+            "topic_tags": {
+              "modification_type": [
+                "m6A"
+              ],
+              "hallmark": [
+                "telomere attrition"
+              ],
+              "molecule": [
+                "TERC",
+                "telomerase"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "heading": "三、其他腺苷相关甲基化修饰与寿命调控",
+      "subsections": [
+        {
+          "heading": "3.1 线粒体 DNA 6mA 修饰与衰老及寿命",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "mtDNA 6mA misregulation",
+                "DAMT-1",
+                "ALKB-1"
+              ],
+              "predicate": [
+                "shortens",
+                "alters",
+                "regulates"
+              ],
+              "object": [
+                "lifespan",
+                "mtDNA copy number",
+                "OXPHOS",
+                "oxidative stress"
+              ],
+              "direction": [
+                "decrease",
+                "increase"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "in vivo genetic manipulation",
+                "cross-species comparison"
+              ],
+              "sample_or_system": [
+                "C. elegans",
+                "various eukaryotes"
+              ],
+              "condition": [
+                "overexpression/deletion of DAMT-1/ALKB-1",
+                "mtDNA 6mA misregulation"
+              ],
+              "method": [
+                "lifespan assay",
+                "qPCR",
+                "oxygen consumption",
+                "oxidative stress reporters"
+              ]
+            },
+            "variables": [
+              "mtDNA 6mA",
+              "DAMT-1",
+              "ALKB-1",
+              "mtDNA copy number",
+              "oxidative stress",
+              "lifespan"
+            ],
+            "topic_tags": {
+              "modification_type": [
+                "6mA"
+              ],
+              "organism": [
+                "C. elegans"
+              ],
+              "process": [
+                "mitochondrial dysfunction",
+                "aging"
+              ]
+            }
+          }
+        },
+        {
+          "heading": "3.2 rRNA 腺苷甲基化与应激抵抗及寿命调节",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "dimt-1 knockdown",
+                "DIMT-1 catalytic mutation",
+                "rRNA methyltransferases"
+              ],
+              "predicate": [
+                "extends",
+                "eliminates",
+                "increases",
+                "regulates"
+              ],
+              "object": [
+                "lifespan",
+                "stress resistance",
+                "18S rRNA m6,2A",
+                "18S rRNA m6A"
+              ],
+              "direction": [
+                "increase",
+                "decrease"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "targeted RNAi screen",
+                "genetic mutant analysis",
+                "stress exposure"
+              ],
+              "sample_or_system": [
+                "C. elegans"
+              ],
+              "condition": [
+                "dimt-1 knockdown",
+                "DIMT-1 E79A mutation",
+                "UV/heat stress"
+              ],
+              "method": [
+                "UHPLC-MS/MS",
+                "lifespan assay",
+                "stress survival assay"
+              ]
+            },
+            "variables": [
+              "DIMT-1",
+              "18S rRNA m6,2A",
+              "18S rRNA m6A",
+              "daf-9/daf-12",
+              "germline",
+              "lifespan",
+              "stress resistance"
+            ],
+            "topic_tags": {
+              "modification_type": [
+                "rRNA m6,2A",
+                "rRNA m6A"
+              ],
+              "organism": [
+                "C. elegans"
+              ],
+              "process": [
+                "lifespan regulation",
+                "stress response"
+              ]
+            }
+          }
+        },
+        {
+          "heading": "3.3 DNA 腺苷甲基化（6mA）作为衰老时钟标志物",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "6mA methylation sites"
+              ],
+              "predicate": [
+                "are enriched in",
+                "train",
+                "predict"
+              ],
+              "object": [
+                "age-related differentially methylated sites",
+                "age prediction error",
+                "epigenetic clock"
+              ],
+              "direction": [
+                "positive_association",
+                "decrease"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "experimental study",
+                "review"
+              ],
+              "sample_or_system": [
+                "European sea bass (Dicentrarchus labrax) larvae eDNA",
+                "C. elegans"
+              ],
+              "condition": [
+                "10-24 days post-hatch",
+                "aging"
+              ],
+              "method": [
+                "Nanopore sequencing",
+                "6mA detection"
+              ]
+            },
+            "variables": [
+              "6mA methylation",
+              "age prediction",
+              "5mC",
+              "5hmC"
+            ],
+            "topic_tags": {
+              "modification_type": [
+                "6mA"
+              ],
+              "technology": [
+                "Nanopore sequencing"
+              ],
+              "process": [
+                "aging clock"
+              ]
+            }
+          }
+        },
+        {
+          "heading": "3.4 蛋白质羧甲基化修复与 A-to-I RNA 编辑：衰老中的其他腺苷/甲基化连接",
+          "match_criteria": {
+            "relation": {
+              "subject": [
+                "L-isoaspartyl methyltransferase",
+                "protein carboxymethylation",
+                "A-to-I editing"
+              ],
+              "predicate": [
+                "repairs",
+                "may be involved in",
+                "increases with age"
+              ],
+              "object": [
+                "age-damaged proteins",
+                "repair functions",
+                "C. elegans"
+              ]
+            },
+            "context": {
+              "study_type": [
+                "review",
+                "narrative review"
+              ],
+              "sample_or_system": [
+                "proteins in eukaryotic cells",
+                "C. elegans"
+              ],
+              "condition": [
+                "age-related protein damage",
+                "aging"
+              ],
+              "method": [
+                "literature review"
+              ]
+            },
+            "variables": [
+              "L-isoaspartyl methyltransferase",
+              "protein carboxymethylation",
+              "A-to-I editing",
+              "aging"
+            ],
+            "topic_tags": {
+              "modification_type": [
+                "protein methylation",
+                "A-to-I editing"
+              ],
+              "process": [
+                "protein repair",
+                "aging"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

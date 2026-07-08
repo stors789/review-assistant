@@ -10,124 +10,203 @@ It helps you move from a folder of papers to structured notes, claim verificatio
 
 ## What It Does
 
-- Browse Zotero collections and check local PDF coverage.
-- Decompose PDFs into structured paper notes.
-- Verify claims in a paragraph against papers in a Zotero collection.
-- Explore a research question across a paper set and synthesize a report.
-- Generate a narrative review article, summary table, and Mermaid diagram.
-- Search Semantic Scholar for missing literature and import through Zotero Web API or RIS fallback.
-- Cache PDF text and extraction results so repeated runs do not waste API calls.
+- **能力A · 文献拆解**: Decompose PDFs into structured paper notes.
+- **能力B · 主张验证**: Verify claims in a paragraph against papers in a Zotero collection.
+- **能力C · 数据库查询**: Browse Zotero collections and check local PDF coverage.
+- **能力D · 探索总结**: Explore a research question across a paper set and synthesize a report.
+- **能力E · 文献检索入库**: Search Semantic Scholar for literature and import through Zotero Web API or RIS fallback.
 
 ## Core Workflows
 
-### 1. Inspect Zotero
+### 1. Inspect Zotero（能力C）
 
 List all collections and PDF coverage:
 
 ```bash
-# Using CLI script:
-review-assistant-read --list
-
-# Or using direct python execution:
 python scripts/zotero_read.py --list
 ```
 
 Inspect one collection:
 
 ```bash
-review-assistant-read "Collection > Subcollection"
-review-assistant-read --pdf-only "Collection > Subcollection"
+python scripts/zotero_read.py "Collection > Subcollection"
+python scripts/zotero_read.py --pdf-only "Collection > Subcollection"
 ```
 
-### 2. Break Down Papers
+### 2. Break Down Papers（能力A）
 
 Create structured JSON notes and a CSV summary from PDFs in a Zotero collection:
 
 ```bash
-# Set environment variables, then run:
-review-assistant-breakdown \
-  -z "Collection > Subcollection" \
-  -o ./paper_breakdown_output \
-  -w 5
+python scripts/paper_breakdown.py -z "Collection > Subcollection" -o ./output -w 5
 ```
 
-You can also process a folder of PDFs:
+Or process a folder of PDFs directly:
 
 ```bash
-review-assistant-breakdown \
-  -i /path/to/pdfs \
-  -o ./paper_breakdown_output
+python scripts/paper_breakdown.py -i /path/to/pdfs -o ./output
 ```
 
-### 3. Verify Claims
+**Parameters:**
 
-Check whether a paragraph is supported by papers in a Zotero collection:
+| Parameter | Description | Default |
+|---|---|---|
+| `-z` / `--zotero-collection` | Zotero collection path | — |
+| `-i` / `--input-dir` | PDF folder path | — |
+| `-o` / `--output` | Output directory | — |
+| `-w` / `--workers` | Concurrent workers | `3` |
+| `-m` / `--model` | LLM model | `deepseek-v4-flash` |
+| `--list-collections` | List available collections and PDF coverage | — |
+
+Already-processed papers are automatically skipped; safe to re-run. Output: `*.json` per paper + `_summary.csv`.
+
+### 3. Verify Claims（能力B）
+
+Check whether a paragraph's claims are supported by papers in a Zotero collection:
 
 ```bash
-review-assistant-verify \
-  "Collection > Subcollection" \
-  -p "Your review paragraph..." \
-  -o claim_report.json
+python scripts/claim_verify.py "Collection > Subcollection" -p "Your review paragraph..." -o report.json
 ```
 
-The report decomposes the paragraph into independent claims, matches each claim to relevant papers, and labels support strength.
-
-### 4. Explore And Synthesize
-
-Run the full review pipeline:
+Or from a file:
 
 ```bash
-# Using default keyword-based chunk selection:
-review-assistant-synthesize \
-  "Collection > Subcollection" \
-  -q "What does this literature show about the research question?" \
-  -o ./synthesize_output
-
-# Using semantic vector search (Hybrid RAG) for chunk selection:
-review-assistant-synthesize \
-  "Collection > Subcollection" \
-  -q "What does this literature show about the research question?" \
-  --vector-search \
-  -o ./synthesize_output
+python scripts/claim_verify.py "Collection > Subcollection" -f paragraph.md -o report.json
 ```
 
-The pipeline extracts findings from every available PDF, builds an outline, writes a structured report, verifies citations and logic, applies fixes, then produces a narrative article plus table and diagram outputs.
+**Parameters:**
 
-### 5. Search And Import Literature
+| Parameter | Description | Default |
+|---|---|---|
+| `collection` | Zotero collection path (required) | — |
+| `-p` / `--paragraph` | Paragraph text to verify | — |
+| `-f` / `--file` | Read paragraph from file | — |
+| `-m` / `--model` | LLM model | `deepseek-v4-flash` |
+| `--top` | Max papers per claim | `3` |
+| `-o` / `--output` | JSON report output path | terminal only |
 
-Search Semantic Scholar and import into Zotero. The default behavior generates an RIS file; `--web-import` writes directly through the Zotero Web API and can wait for Zotero Desktop to sync locally:
+The report decomposes the paragraph into independent claims, matches each claim to relevant papers, and labels support strength: fully supported / partially supported / weakly supported / not supported / contradictory.
+
+### 4. Explore And Synthesize（能力D）
+
+Run the full review pipeline — extract findings, build outline, write report, verify, generate article + table + diagram:
 
 ```bash
-# Using default screening rules:
-review-assistant-autolit \
-  "short English search query" \
-  -c "Target Zotero Collection" \
-  -t "topic-tag" \
-  -n 10
-
-# Using custom screening rules from a JSON config file:
-review-assistant-autolit \
-  "short English search query" \
-  --screen \
-  --screen-rules ./custom_rules.json \
-  -c "Target Zotero Collection" \
-  -t "topic-tag"
+python scripts/explore_synthesize.py "Collection > Subcollection" -q "Your research question" -o ./output
 ```
 
-Direct Web API import:
+With vector-search hybrid RAG:
 
 ```bash
-review-assistant-autolit \
-  "short English search query" \
-  --web-import \
-  --zotero-library-type user \
-  --zotero-library-id "<your-user-id>" \
-  -c "Parent > Child Collection" \
-  -t "topic-tag"
+python scripts/explore_synthesize.py "Collection > Subcollection" -q "Your research question" --vector-search -o ./output
 ```
 
-`auto_lit.py` uses DOI-based de-duplication against the local Zotero database when possible.
+**Parameters:**
 
+| Parameter | Description | Default |
+|---|---|---|
+| `collection` | Zotero collection path (required, can be multiple) | — |
+| `-q` / `--question` | Research question (required) | — |
+| `-o` / `--output` | Output directory | `synthesize_output` |
+| `-m` / `--model` | LLM model | `deepseek-v4-pro` |
+| `-w` / `--workers` | Concurrent workers | `5` |
+| `--skip-step1` | Skip extraction, reuse cached findings | — |
+| `--skip-verify` | Skip all verification steps | — |
+| `--vector-search` | Enable hybrid vector + keyword chunk retrieval | off |
+| `--max-papers` | Max papers to process (0 = unlimited) | `0` |
+
+See [Full Synthesis Pipeline](#full-synthesis-pipeline) below for the detailed step-by-step flow.
+
+### 5. Search And Import Literature（能力E）
+
+Search Semantic Scholar and import results into Zotero:
+
+```bash
+# Basic search with default screening:
+python scripts/auto_lit.py "short English query" -c "Target Collection" -t "topic-tag" -n 10
+
+# With custom screening rules:
+python scripts/auto_lit.py "short English query" --screen --screen-rules ./rules.json -c "Target" -t "tag"
+
+# Web API direct import:
+python scripts/auto_lit.py "short English query" --web-import -c "Parent > Child" -t "tag"
+```
+
+**Parameters:**
+
+| Parameter | Description | Default |
+|---|---|---|
+| `keywords` | Semantic Scholar search keywords (English) | — |
+| `-c` / `--collection` | Target Zotero collection path | — |
+| `-t` / `--tag` | Zotero tag | — |
+| `-m` / `--min-citations` | Minimum citation count filter | `0` |
+| `-n` / `--limit` | Max results | `20` |
+| `--screen` | Enable title/abstract year-aware relevance screening | off |
+| `--screen-rules` | Custom screening rules JSON file | built-in defaults |
+| `--min-relevance` | Minimum relevance score in screen mode | `4` |
+| `--import-zotero` | Auto-open Zotero for RIS import (macOS only) | off |
+| `--web-import` | Import via Zotero Web API | off |
+| `--zotero-library-type` | Web API library type: `user` or `group` | `ZOTERO_LIBRARY_TYPE` env |
+| `--zotero-library-id` | Zotero user ID or group ID | `ZOTERO_LIBRARY_ID` env |
+| `--collection-key` | Direct Zotero collection key (skip path resolution) | — |
+| `--no-create-collection` | Fail if collection missing in web mode | auto-create |
+| `--no-wait-local-sync` | Skip waiting for local Zotero sync after web import | wait |
+
+**Year-aware screening:** Use `--screen` to score candidates by title, abstract, and journal — useful for cross-disciplinary or recent papers where citation thresholds are unreliable. RIS output includes `screen:A/B` and `score:N` keywords for Zotero review. Without `--screen`, `-m` behaves as a hard citation-count filter.
+
+**Integration with synthesize:** After running `explore_synthesize.py`, review the summary table for `~无数据` cells. These represent gaps you can fill by searching with `auto_lit.py` and re-running the pipeline.
+
+## Full Synthesis Pipeline
+
+```text
+Step1 -> Ver1 -> Step2 -> Step3 -> Step4 -> Ver A/B -> Step6 -> Step5 -> Step7
+Extract  Quote   Outline  Match+Write  Integrate  Verify     Fix     Article  Table/Diagram
+```
+
+| Step | Description | Design Notes |
+|---|---|---|
+| **Step1** | Extract findings from each PDF: claim_cn, quote, cite_key, and dynamic tags. Irrelevant papers are skipped. | temperature=0 for determinism; PDF text + API results are double-cached; same question reuses cache |
+| **Ver1** | Verify each quote against source text (exact/fuzzy match). Retry extraction up to 2 rounds on failure. | Local matching, no API cost |
+| **Step2** | LLM reviews all findings and generates a report outline with search_tags on leaf nodes. | Groups by population dimensions specified in the research question |
+| **Step3** | Phase A: match 3-8 findings per section via tag semantics. Phase B: write each section in parallel. | Unmatched findings are dropped (favor precision); each section input stays under a few hundred chars |
+| **Step4** | Merge sections, polish style, generate references, flag cross-section contradictions. | Orphan references (not cited in body) are auto-removed |
+| **Ver A** | Verify citation metadata: year, author names, core concept entities against findings index. | Uses reasoning model with 65536 tokens |
+| **Ver B** | Check cross-section contradictions, conclusion leaps, and unsupported assertions. | Same reasoning model |
+| **Step6** | Apply factual and logical fixes based on verification feedback. Remove irrelevant sections. | temperature=0, no meta-commentary |
+| **Step5** | Convert structured report into a narrative review article. References preserved verbatim. | temperature=0.3 (only exception, for natural prose) |
+| **Step7** | Generate summary table (row × column dimensions) and Mermaid diagram with color-coded relationships. | Table takes priority; auto-colored |
+
+## Output Layout
+
+Typical `explore_synthesize.py` output:
+
+```text
+synthesize_output/
+├── cache/                  # PDF text cache (SHA256-named)
+├── findings/               # Per-paper extracted findings
+├── outline.json            # Generated outline
+├── outline.meta.json       # Outline caching metadata
+├── sections.json           # Cached section drafts
+├── sections.meta.json      # Section drafts caching metadata
+├── report.md               # Structured review report
+├── report.meta.json        # Report caching metadata
+├── article.md              # Narrative article
+├── table.md                # Summary table
+├── diagram.md              # Mermaid diagram
+├── verification.md         # Citation and logic verification
+├── verification_after_fix.md # Revised report verification
+└── evidence_coverage.json  # EvidencePack coverage report
+```
+
+Mermaid diagrams can be rendered locally: `mmdc --input diagram.md --output diagram.svg --backgroundColor white`
+
+Typical `paper_breakdown.py` output:
+
+```text
+paper_breakdown_output/
+├── *.json             # One structured note per paper
+└── _summary.csv       # Combined paper summary table
+```
 
 ## Scripts
 
@@ -140,52 +219,38 @@ review-assistant-autolit \
 | `scripts/explore_synthesize.py` | End-to-end research-question synthesis pipeline. |
 | `scripts/auto_lit.py` | Semantic Scholar/PubMed search to Zotero Web API import or RIS fallback. |
 
-## Full Synthesis Pipeline
+## Environment Variables
 
-```text
-Step1 -> Ver1 -> Step2 -> Step3 -> Step4 -> Ver A/B -> Step6 -> Step5 -> Step7
-Extract  Quote   Outline  Match+Write  Integrate  Verify     Fix     Article  Table/Diagram
-```
+### Required
 
-- **Step1:** Extract findings from each PDF as claims, quotes, citation keys, and dynamic tags.
-- **Ver1:** Verify extracted quotes with local string or fuzzy matching.
-- **Step2:** Generate a report outline from the extracted findings.
-- **Step3:** Match findings to outline sections and write sections in parallel.
-- **Step4:** Integrate sections into a structured report and remove orphan references.
-- **Ver A/B:** Check citation metadata and logical consistency.
-- **Step6:** Apply factual and logical fixes based on verification feedback.
-- **Step5:** Convert the structured report into a narrative article.
-- **Step7:** Generate a summary table and Mermaid diagram.
+| Variable | Purpose |
+|---|---|
+| `DEEPSEEK_API_KEY` | DeepSeek API key for LLM workflows |
+| `SS_API_KEY` | Semantic Scholar API key for literature search |
+| `PUBMED_API_KEY` | PubMed API key (optional, raises rate limit) |
 
-## Output Layout
+Additional DeepSeek keys (`DEEPSEEK_API_KEY_2`, `_3`, `_4`...) are auto-detected by the synthesis pipeline for key rotation.
 
-Typical `explore_synthesize.py` output:
+### Optional
 
-```text
-synthesize_output/
-├── report.md               # Structured review report
-├── report.meta.json        # Report caching metadata
-├── article.md              # Narrative article
-├── table.md                # Summary table
-├── diagram.md              # Mermaid diagram
-├── verification.md         # Citation and logic verification
-├── verification_after_fix.md # Revised report verification (if issues are fixed)
-├── outline.json            # Generated outline
-├── outline.meta.json       # Outline caching metadata
-├── sections.json           # Cached section drafts
-├── sections.meta.json      # Section drafts caching metadata
-├── findings/               # Per-paper extracted findings
-├── cache/                  # PDF text cache
-└── evidence_coverage.json  # EvidencePack coverage report
-```
-
-Typical `paper_breakdown.py` output:
-
-```text
-paper_breakdown_output/
-├── *.json             # One structured note per paper
-└── _summary.csv       # Combined paper summary table
-```
+| Variable | Purpose | Default |
+|---|---|---|
+| `REVIEW_ASSISTANT_MODEL` | Default LLM model | `deepseek-v4-pro` |
+| `REVIEW_ASSISTANT_STEP7_MODEL` | Model for Step7 table/diagram generation | same as main |
+| `REVIEW_ASSISTANT_BASE_URL` / `DEEPSEEK_BASE_URL` | OpenAI-compatible API base URL | DeepSeek default |
+| `REVIEW_ASSISTANT_EMBEDDING_API_KEY` | API key for text embeddings | `OPENAI_API_KEY` |
+| `REVIEW_ASSISTANT_EMBEDDING_BASE_URL` | Base URL for text embeddings | OpenAI default |
+| `REVIEW_ASSISTANT_WORKERS` | Default worker count | `5` |
+| `REVIEW_ASSISTANT_USE_PROXY` | Set to `true` to preserve system proxy variables | stripped |
+| `ZOTERO_DIR` | Custom Zotero data directory | `~/Zotero` |
+| `ZOTERO_LINKED_BASE_DIR` | Base dir for Zotero linked-file relative paths | — |
+| `ZOTERO_LINKED_PREFIX_MAP` | Cross-system drive-letter mapping (e.g. `C:\...\=>/Users/.../\|D:\...\=>/mnt/.../`) | — |
+| `AUTO_LIT_LOCK_DIR` | Custom dir for Semantic Scholar cross-process lock file | — |
+| `ZOTERO_API_KEY` | Zotero Web API key (write permission required) | — |
+| `ZOTERO_LIBRARY_TYPE` | Web API library type: `user` or `group` | — |
+| `ZOTERO_LIBRARY_ID` | Zotero user ID or group ID | — |
+| `ZOTERO_WEB_IMPORT` | Set to `true` to default to Web API import | `false` |
+| `ZOTERO_SYNC_TIMEOUT` | Seconds to wait for local Zotero sync after web import | — |
 
 ## Requirements
 
@@ -196,7 +261,6 @@ paper_breakdown_output/
 - Semantic Scholar API key for search/import workflows
 - PubMed API key / NCBI API key (optional, for higher rate limits)
 
-
 ## Installation & Setup
 
 1. **Install Python dependencies:**
@@ -205,106 +269,74 @@ paper_breakdown_output/
 python -m pip install -r requirements.txt
 ```
 
-Or install the package locally in editable mode so you can run the `review-assistant-*` commands directly from anywhere:
+Or install locally in editable mode:
 
 ```bash
 python -m pip install -e .
 ```
 
-2. **Load API keys / Environment variables:**
+2. **Configure API keys:**
 
-- **On Unix (macOS/Linux):**
-  Create/load an environment file:
-  ```bash
-  export DEEPSEEK_API_KEY="your-key"
-  export SS_API_KEY="your-key"
-  export PUBMED_API_KEY="your-key"  # Optional: for PubMed search limit
-  ```
-  Or source a file: `source ~/Documents/api.env`
+```bash
+export DEEPSEEK_API_KEY="your-key"
+export SS_API_KEY="your-key"
+export PUBMED_API_KEY="your-key"  # Optional
+```
 
-- **On Windows (Command Prompt):**
-  ```cmd
-  set DEEPSEEK_API_KEY="your-key"
-  set SS_API_KEY="your-key"
-  set PUBMED_API_KEY="your-key"
-  ```
+Or source an env file: `source ~/Documents/api.env`
 
-- **On Windows (PowerShell):**
-  ```powershell
-  $env:DEEPSEEK_API_KEY="your-key"
-  $env:SS_API_KEY="your-key"
-  $env:PUBMED_API_KEY="your-key"
-  ```
-
-
-3. **Optional configurations:**
-- `ZOTERO_DIR`: Custom Zotero data directory (defaults to `~/Zotero`).
-- `ZOTERO_LINKED_BASE_DIR`: Base directory to resolve Zotero linked file relative attachments (`attachments:relative/path.pdf`).
-- `ZOTERO_LINKED_PREFIX_MAP`: Cross-system Windows drive-letter mapping, e.g. `C:\Users\...\= >/Users/.../|D:\Data\=>/mnt/data/`, used when reading a Zotero DB created on a different OS.
-- `AUTO_LIT_LOCK_DIR`: Custom directory to place the Semantic Scholar cross-process lock file.
-- `ZOTERO_API_KEY`: Zotero Web API key with write permission.
-- `ZOTERO_LIBRARY_TYPE`: Zotero Web API library type, `user` or `group`.
-- `ZOTERO_LIBRARY_ID`: Zotero user ID or group ID.
-- `ZOTERO_WEB_IMPORT`: Set to `true` to use Web API import by default.
-- `ZOTERO_SYNC_TIMEOUT`: Seconds to wait for local Zotero Desktop sync after Web API import.
-- `REVIEW_ASSISTANT_BASE_URL` / `DEEPSEEK_BASE_URL`: Default OpenAI-compatible API base URL.
-- `REVIEW_ASSISTANT_MODEL`: Default model for LLM-backed workflows.
-- `REVIEW_ASSISTANT_STEP7_MODEL`: Default model for synthesis table and Mermaid generation.
-- `REVIEW_ASSISTANT_EMBEDDING_API_KEY`: Custom API Key for text embeddings (defaults to `OPENAI_API_KEY`).
-- `REVIEW_ASSISTANT_EMBEDDING_BASE_URL`: Custom API base URL for text embeddings (defaults to OpenAI's endpoint if using OpenAI key).
-- `REVIEW_ASSISTANT_WORKERS`: Default worker count for concurrent workflows.
-- `REVIEW_ASSISTANT_USE_PROXY=true`: Preserve system proxy variables instead of stripping/bypassing them.
+See [Environment Variables](#environment-variables) for the full list.
 
 ## Testing
-
-To run the unit test suite:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-
-Optional:
-
-```bash
-DEEPSEEK_API_KEY_2=...
-DEEPSEEK_API_KEY_3=...
-```
-
-Additional DeepSeek keys are auto-detected by the synthesis pipeline for key rotation.
-
 ## Design Notes
 
-- Zotero access is read-only: the scripts copy or read the SQLite database without requiring Zotero to close.
+- Zotero access is read-only: scripts copy the SQLite database without requiring Zotero to close.
 - PDF coverage is checked against actual local files, not only Zotero attachment records.
-- Semantic Scholar requests are rate-limited with a platform-adaptive cross-process lock (using fcntl on Unix and msvcrt on Windows).
+- Semantic Scholar requests are rate-limited with a platform-adaptive cross-process lock (fcntl on Unix, msvcrt on Windows).
 - PDF text and LLM findings are cached to make reruns cheaper and reproducible.
-- Analytical extraction uses deterministic model settings where practical.
+- Analytical extraction uses deterministic model settings (temperature=0) wherever practical.
 - The synthesis pipeline favors grounded findings over broad, unsupported narrative generation.
+- Multi-key rotation: synthesis auto-detects `DEEPSEEK_API_KEY_2`, `_3`, `_4`... to bypass single-key rate limits.
+- Orphan references are auto-cleaned: only references cited in the body text via `[N]` appear in the final bibliography.
 
 ## Generality & Portability
 
-Review Assistant is engineered with strict generality and portability guidelines to support any research topic and target environment:
-
-- **Customizable Screening Rules**: The literature screening system is fully generic. Instead of hardcoded rules, you can define your own keywords, weights (including negative values for exclusion), and categorization tiers in a JSON config file and load it via the `--screen-rules` option in `auto_lit.py`. If no file is specified, it gracefully falls back to the default RAG/LLM evaluation rules.
-- **Cross-Platform Zotero Paths**: If your Zotero database was created on a different OS (e.g., Windows drive letters `C:\...`) or uses linked file attachments, path mapping is handled dynamically on macOS/Linux using `ZOTERO_LINKED_BASE_DIR` and `ZOTERO_LINKED_PREFIX_MAP` configurations.
-- **Multi-LLM Compatibility**: The backend dynamically detects model families (e.g., DeepSeek, OpenAI, local Ollama/LM Studio). It automatically sanitizes request payloads (like stripping DeepSeek's `thinking` parameters on standard models) if the provider returns a bad request parameter error, allowing zero-configuration swaps.
+- **Customizable Screening Rules**: Define keywords, weights (including negative values for exclusion), and categorization tiers in a JSON config file via `--screen-rules`. Falls back to built-in default rules when no file is specified.
+- **Cross-Platform Zotero Paths**: Windows drive letters (`C:\...`) and linked-file attachments are resolved on macOS/Linux via `ZOTERO_LINKED_BASE_DIR` and `ZOTERO_LINKED_PREFIX_MAP`.
+- **Multi-LLM Compatibility**: The backend detects model families (DeepSeek, OpenAI, Ollama/LM Studio) and auto-strips incompatible parameters (e.g., DeepSeek `thinking` on standard models) on 400 errors, enabling zero-config model swaps.
 
 ## Limitations
 
-- The tools depend on the quality of PDF text extraction. Scanned or encrypted PDFs may need OCR or unlocking first.
-- RIS import into Zotero is semi-automatic and may require confirming the Zotero import dialog; Web API import avoids this when configured.
-- The local Zotero API does not support write requests, so truly silent local collection creation is not implemented.
+- Scanned or encrypted PDFs may need OCR or unlocking first.
+- RIS import is semi-automatic and may require confirming the Zotero import dialog; Web API import avoids this.
+- The local Zotero API does not support write requests; silent local collection creation is not implemented.
 - Generated reports should still be reviewed by a human, especially for high-stakes or publishable work.
 
 ## Troubleshooting
 
-- **`No module named ...`**: install dependencies with `python -m pip install -r requirements.txt`.
-- **No PDFs found**: run `review-assistant-read --list` and confirm the collection path and PDF coverage.
-- **API key missing**: confirm that the key is exported in your environment.
-
-- **Semantic Scholar 429**: reduce search frequency or shorten the query.
-- **Poor PDF extraction**: OCR the PDF and rerun the workflow.
+| Symptom | Cause | Fix |
+|---|---|---|
+| `No module named ...` / `No module named 'pymupdf'` | Missing Python dependencies | `pip install -r requirements.txt` |
+| No PDFs found / `论文集没有可用的 PDF` | Collection empty or lacks PDF attachments | Run `python scripts/zotero_read.py --list` to check coverage |
+| API key missing | Key not exported in environment | Confirm `DEEPSEEK_API_KEY`, `SS_API_KEY` are set |
+| `database is locked` | Zotero is writing to SQLite | Wait for Zotero to finish, then retry (reads unaffected) |
+| Cannot extract PDF text (0 chars) | Scanned or encrypted PDF | OCR the PDF first, or unlock it |
+| API 429 Too Many Requests | Rate limit hit | Reduce `-w` concurrency; shorten SS query to ≤5 words |
+| SS search 429 | Semantic Scholar rate limit | Shorten query to ≤5 words, wait 1-2 hours |
+| `Insufficient Balance` | DeepSeek API balance exhausted | Top up, then re-run failed steps |
+| JSON parse failure on breakdown | LLM did not output valid JSON | Re-run single paper or switch model with `-m deepseek-reasoner` |
+| `API returned empty response` | Reasoning tokens crowded out output | Fixed: verification uses 65536 tokens |
+| All results `~无数据` | Papers not relevant to question | Use a more specific question, or search for relevant literature first |
+| Same paper re-processing repeatedly | Cache version changed or PDF content changed | Normal behavior; let it complete and re-cache |
+| API balance runs out mid-run | Pay-as-you-go billing | Top up, then resume from checkpoint with `--skip-step1` |
+| Linked attachment not found | Path mismatch between systems | Set `ZOTERO_LINKED_BASE_DIR` or `ZOTERO_LINKED_PREFIX_MAP` |
+| Same-named PDFs cause citation mix-up | Two papers both named `fulltext.pdf` | Fixed: now uses full path to disambiguate |
+| Reference numbers don't match in report | Orphan references auto-cleaned in Step 4 | Only references actually cited in body appear in bibliography |
 
 ## Repository Structure
 
@@ -312,7 +344,7 @@ Review Assistant is engineered with strict generality and portability guidelines
 .
 ├── SKILL.md                   # Codex/OpenCode skill instructions
 ├── README.md                  # User-facing project documentation
-├── GUIDE.zh-CN.md             # 中文人话指南（流程、能力、常见坑）
+├── GUIDE.zh-CN.md             # 中文人话指南
 ├── CHANGELOG.md               # Release changelog
 ├── TODO.md                    # Development roadmap
 ├── requirements.txt

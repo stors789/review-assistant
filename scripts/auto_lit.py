@@ -44,7 +44,7 @@ from zotero_web import ZoteroWebClient, ZoteroWebError, wait_for_local_dois
 
 SS_API = "https://api.semanticscholar.org/graph/v1/paper/search"
 SS_KEY = os.environ.get("SS_API_KEY", "")
-SS_FIELDS = "title,authors,year,externalIds,journal,publicationDate,abstract,citationCount"
+SS_FIELDS = "title,authors,year,externalIds,journal,publicationDate,abstract,citationCount,openAccessPdf"
 
 PUBMED_SEARCH_API = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 PUBMED_FETCH_API = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
@@ -224,12 +224,14 @@ def _search_pubmed(query: str, limit: int = 20) -> list[dict]:
                 except (TypeError, ValueError):
                     year = None
                     
-                # DOI
+                # DOI & PMC ID (for OA PDF link)
                 doi = ""
+                pmc = ""
                 for article_id in article.findall(".//ArticleIdList/ArticleId"):
                     if article_id.attrib.get("IdType") == "doi":
                         doi = article_id.text
-                        break
+                    elif article_id.attrib.get("IdType") == "pmc":
+                        pmc = article_id.text
                         
                 # Abstract
                 abstract_texts = []
@@ -250,7 +252,8 @@ def _search_pubmed(query: str, limit: int = 20) -> list[dict]:
                     "externalIds": {"DOI": doi or f"PMID:{pmid}"},
                     "journal": {"name": j_title},
                     "abstract": abstract,
-                    "citationCount": 0
+                    "citationCount": 0,
+                    "oa_pdf_url": f"https://pmc.ncbi.nlm.nih.gov/articles/{pmc}/pdf/" if pmc else None
                 })
             except Exception as item_err:
                 print(f"  ⚠ 解析单篇文献 XML 失败，跳过: {item_err}", flush=True)

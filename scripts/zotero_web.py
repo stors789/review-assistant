@@ -100,7 +100,7 @@ class ZoteroWebClient:
         resp = self._request(
             "POST",
             "collections",
-            headers={"Zotero-Write-Token": str(uuid.uuid4())},
+            headers={"Zotero-Write-Token": uuid.uuid4().hex},
             json=[payload],
         )
         data = resp.json()
@@ -160,7 +160,7 @@ class ZoteroWebClient:
             resp = self._request(
                 "POST",
                 "items",
-                headers={"Zotero-Write-Token": str(uuid.uuid4())},
+                headers={"Zotero-Write-Token": uuid.uuid4().hex},
                 json=batch,
             )
             payload = resp.json()
@@ -169,6 +169,25 @@ class ZoteroWebClient:
             for key, value in (payload.get("failed", {}) or {}).items():
                 failed[str(offset + int(key))] = value
         return {"successful": successful, "failed": failed}
+
+    def create_attachment_items(self, attachments: list[dict]) -> dict:
+        successful = {}
+        failed = {}
+        for offset in range(0, len(attachments), MAX_WRITE_BATCH):
+            batch = attachments[offset:offset + MAX_WRITE_BATCH]
+            resp = self._request(
+                "POST",
+                "items",
+                headers={"Zotero-Write-Token": uuid.uuid4().hex},
+                json=batch,
+            )
+            payload = resp.json()
+            for key, value in (payload.get("successful", {}) or {}).items():
+                successful[str(offset + int(key))] = value
+            for key, value in (payload.get("failed", {}) or {}).items():
+                failed[str(offset + int(key))] = value
+        return {"successful": successful, "failed": failed}
+
 
 
 def split_author_name(name: str) -> dict:
