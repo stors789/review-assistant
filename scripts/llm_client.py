@@ -10,6 +10,7 @@ import itertools
 import threading
 from openai import OpenAI
 from config import DEFAULT_BASE_URL, get_api_key, should_strip_proxy
+from errors import LLMCallError
 
 _key_cycle = None
 _key_lock = threading.Lock()
@@ -116,7 +117,9 @@ def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: in
             last_err = e
             if attempt < retries:
                 print(f"     ⚠ 重试 {attempt+1}/{retries}: {e}", flush=True)
-    raise last_err
+    raise LLMCallError(
+        str(last_err), original=last_err, attempts=retries + 1
+    ) from last_err
 
 
 def call_json_light(client: OpenAI, system: str, user: str, model: str = "deepseek-v4-flash",
@@ -151,7 +154,9 @@ def call_json_light(client: OpenAI, system: str, user: str, model: str = "deepse
             last_err = e
             if attempt < retries:
                 print(f"     ⚠ 重试 {attempt+1}/{retries}: {e}", flush=True)
-    raise last_err
+    raise LLMCallError(
+        str(last_err), original=last_err, attempts=retries + 1
+    ) from last_err
 
 
 def call_text(client: OpenAI, prompt: str, model: str, max_tokens: int = 4096, retries: int = 2,
@@ -200,7 +205,9 @@ def call_text(client: OpenAI, prompt: str, model: str, max_tokens: int = 4096, r
             last_err = e
             if attempt < retries:
                 print(f"     ⚠ 重试 {attempt+1}/{retries}: {e}", flush=True)
-    raise last_err
+    raise LLMCallError(
+        str(last_err), original=last_err, attempts=retries + 1
+    ) from last_err
 
 
 _emb_client = None
@@ -247,5 +254,7 @@ def get_embedding(client: OpenAI, text: str, model: str = "text-embedding-3-smal
             last_err = e
             if attempt < retries:
                 print(f"     ⚠ Embedding 生成重试 {attempt+1}/{retries}: {e}", flush=True)
-    raise last_err
+    raise LLMCallError(
+        str(last_err), original=last_err, attempts=retries + 1
+    ) from last_err
 
