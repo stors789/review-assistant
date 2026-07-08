@@ -10,6 +10,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils import extract_pdf_text, file_sha256
+from errors import PDFExtractionError, LLMCallError
 from prompts import (
     STEP1_SYSTEM,
     STEP2_PROMPT,
@@ -52,7 +53,7 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
             text_cache_dir.mkdir(parents=True, exist_ok=True)
             text_cache_path.write_text(text, encoding="utf-8")
             cached = False
-        except Exception as e:
+        except PDFExtractionError as e:
             with print_lock:
                 print(f"  [{idx}/{total}] {stem} -> ⚠ PDF提取失败: {e}", flush=True)
             return {"file": pdf_path.name, "pdf_path": str(pdf_path), "relevant": False,
@@ -95,9 +96,9 @@ def step1_extract_single(client, pdf_path: Path, meta: dict, question: str, mode
             f"请根据上述论文文本，提取与以下研究问题相关的发现：\n研究问题：{question}"
         )
         result = llm_client.call_json(client, STEP1_SYSTEM, user_prompt, model, 16384)
-    except Exception as e:
+    except LLMCallError as e:
         with print_lock:
-            print(f"  [{idx}/{total}] {stem} -> ⚠ API失败: {e}", flush=True)
+            print(f"  [{idx}/{total}] {stem} -> ⚠ API失败 (attempts={e.attempts}): {e}", flush=True)
         return {"file": pdf_path.name, "pdf_path": str(pdf_path), "relevant": False,
                 "findings": [], "error": str(e),
                 "ref_title": meta.get("title", ""), "ref_authors": meta.get("authors", ""),
@@ -268,8 +269,8 @@ def step2_generate_outline(client, all_results: list[dict], question: str,
         sections = outline.get("sections", [])
         print(f"  ✅ 生成大纲标题: {title}，共 {len(sections)} 个主章节\n", flush=True)
         return outline
-    except Exception as e:
-        print(f"  ⚠ 大纲生成失败: {e}，回退使用通用结构", flush=True)
+    except LLMCallError as e:
+        print(f"  ⚠ 大纲生成失败 (attempts={e.attempts}): {e}，回退使用通用结构", flush=True)
 
     # Generic Fallback Outline Generation
     try:
@@ -279,8 +280,8 @@ def step2_generate_outline(client, all_results: list[dict], question: str,
         pro_client = get_client()
         outline = llm_client.call_json(pro_client, "", STEP2_PROMPT.format(question=question, findings=findings_index), STEP2_MODEL_FALLBACK, 32768)
         return outline
-    except Exception as e2:
-        print(f"  ⚠ Fallback 大纲生成仍失败: {e2}，生成极简大纲", flush=True)
+    except LLMCallError as e2:
+        print(f"  ⚠ Fallback 大纲生成仍失败 (attempts={e2.attempts}): {e2}，生成极简大纲", flush=True)
 
     # Programmatic Ultimate Fallback
     dim_counts = {}
@@ -468,8 +469,8 @@ def step3_match_and_write(client_factory, outline: dict, all_results: list[dict]
                                               findings=abbreviated),
                                           model, 8192)
             indices = result.get("matched_indices", [])
-        except Exception as e:
-            print(f"    ⚠ {heading} 匹配失败: {e}，取前8条", flush=True)
+        except LLMCallError as e:
+            print(f"    ⚠ {heading} 匹配失败 (attempts={e.attempts}): {e}，取前8条", flush=True)
             indices = [f["index"] for f in main_findings[:8]]
         indices = _normalize_indices(indices)
         print(f"    {heading}: {len(indices)}条", flush=True)
@@ -512,8 +513,8 @@ def step3_match_and_write(client_factory, outline: dict, all_results: list[dict]
             content = llm_client.call_text(client,
                                            STEP3_WRITE_PROMPT.format(heading=heading, question=question, findings=findings_text),
                                            model, 32768)
-        except Exception as e:
-            content = f"撰写失败: {e}"
+        except LLMCallError as e:
+            content = f"撰写失败 (attempts={e.attempts}): {e}"
 
         # --- Citation Sanitizer ---
         allowed_refs = {f['ref_num'] for f in matched}
@@ -598,8 +599,8 @@ def step4_integrate(client, outline: dict, sections: list[dict],
         report = llm_client.call_text(client,
                                       STEP4_PROMPT.format(sections=sections_input, question=question),
                                       model, 65536)
-    except Exception as e:
-        print(f"  ⚠ 整合失败: {e}，直接拼接", flush=True)
+    except LLMCallError as e:
+        print(f"  ⚠ 整合失败 (attempts={e.attempts}): {e}，直接拼接", flush=True)
         report = f"# {outline.get('title', '文献综述报告')}\n\n" + sections_input
 
     # Add Reference List
@@ -622,8 +623,8 @@ def step5_narrative(client, report_text: str, model: str) -> str:
         article = llm_client.call_text(client,
                                        STEP5_PROMPT.format(report=report_text),
                                        model, 32768, temperature=0.3)
-    except Exception as e:
-        print(f"  ⚠ 文章生成失败: {e}，回退使用原报告", flush=True)
+    except LLMCallError as e:
+        print(f"  ⚠ 文章生成失败 (attempts={e.attempts}): {e}，回退使用原报告", flush=True)
         article = report_text
 
     print(f"  ✅ 文章生成完成\n", flush=True)
@@ -712,8 +713,8 @@ def step7_summary(client_factory, report_text: str, step7_model: str = "deepseek
             t = resp.choices[0].message.content
             if t and "|" in t:
                 return t
-        except Exception as e:
-            print(f"  ⚠ 表格生成失败: {e}", flush=True)
+        except LLMCallError as e:
+            print(f"  ⚠ 表格生成失败 (attempts={e.attempts}): {e}", flush=True)
         return ""
 
     def _gen_diagram():
@@ -729,8 +730,12 @@ def step7_summary(client_factory, report_text: str, step7_model: str = "deepseek
             d = resp.choices[0].message.content
             if d and "```mermaid" in d:
                 return d
-        except Exception:
-            pass
+        except LLMCallError as e:
+            print(f"  ⚠ 示意图生成失败 (attempts={e.attempts}): {e}",
+                  file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"  ⚠ 示意图生成失败（非API错误）: {e}",
+                  file=sys.stderr, flush=True)
         return ""
 
     with ThreadPoolExecutor(max_workers=2) as ex:
