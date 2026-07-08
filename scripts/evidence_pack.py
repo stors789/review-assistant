@@ -8,6 +8,7 @@ import json
 import re
 import time
 import math
+import sys
 from pathlib import Path
 from prompts import AI_CHUNK_RERANK_PROMPT
 import llm_client
@@ -253,7 +254,8 @@ Example output:
                 print(f"  [AI 跨语言搜索词] {valid}", flush=True)
                 return valid
         except Exception as e:
-            print(f"  ⚠ AI关键词提取失败: {e}，回退至基础提取", flush=True)
+            print(f"  ⚠ AI关键词提取失败: {e}，回退至基础提取",
+                  file=sys.stderr, flush=True)
 
     raw = re.findall(r"[A-Za-z0-9_\-]+|[\u4e00-\u9fff]{2,}", question)
     _QUERY_TERMS_CACHE[question] = raw
@@ -406,7 +408,8 @@ def build_evidence_pack(text: str, question: str, max_chars: int = 80000,
                 else:
                     chunk["vector_similarity"] = 0.0
         except Exception as e:
-            print(f"      ⚠ 向量语义排序初始化失败，降级为常规关键字检索: {e}", flush=True)
+            print(f"      ⚠ 向量语义排序初始化失败，降级为常规关键字检索: {e}",
+                  file=sys.stderr, flush=True)
             use_vector_search = False
 
     selected_ids = set()
@@ -429,6 +432,8 @@ def build_evidence_pack(text: str, question: str, max_chars: int = 80000,
                 else:
                     chunk["ai_selected"] = False
         except Exception as e:
+            print(f"      ⚠ AI重排失败，回退至常规排序: {e}",
+                  file=sys.stderr, flush=True)
             ai_meta = {"enabled": True, "used": False, "trigger": rerank_reason, "error": str(e)[:500], "selected_chunk_ids": []}
 
     def add_chunk(chunk: dict):
@@ -657,8 +662,9 @@ def load_or_compute_embeddings(pdf_hash: str, chunks: list[dict], cache_dir: Pat
     if cache_path.exists():
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[evidence_pack] 嵌入缓存读取失败 ({cache_path.name}): {e}",
+                  file=sys.stderr, flush=True)
 
     missing = []
     for c in chunks:
@@ -679,14 +685,16 @@ def load_or_compute_embeddings(pdf_hash: str, chunks: list[dict], cache_dir: Pat
                 c["embedding"] = emb
                 cached[cid] = {"hash": ctext_hash, "vector": emb}
             except Exception as e:
-                # Fail silently for this chunk, fallback to None
+                print(f"[evidence_pack] chunk {cid} 嵌入计算失败: {e}",
+                      file=sys.stderr, flush=True)
                 c["embedding"] = None
 
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps(cached, ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[evidence_pack] 嵌入缓存写入失败 ({cache_path.name}): {e}",
+                  file=sys.stderr, flush=True)
 
     return {c["chunk_id"]: c.get("embedding") for c in chunks if c.get("embedding") is not None}
 
