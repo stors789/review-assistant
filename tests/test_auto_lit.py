@@ -168,54 +168,57 @@ class AutoLitScreenTests(unittest.TestCase):
 
     def test_pubmed_key_delay_config(self):
         # Verify delay is 0.2s when key is set, and 1.5s when key is empty
-        original_key = auto_lit.PUBMED_KEY
+        # Mock requests.get and sleep
+        import requests
+        from unittest.mock import MagicMock
+        
+        mock_responses = [
+            MagicMock(status_code=200, json=lambda: {"esearchresult": {"idlist": ["1"]}}, raise_for_status=lambda: None),
+            MagicMock(status_code=200, content=b"<PubmedArticleSet></PubmedArticleSet>", raise_for_status=lambda: None)
+        ]
+        call_count = 0
+        def mock_get(*args, **kwargs):
+            nonlocal call_count
+            res = mock_responses[call_count]
+            call_count += 1
+            return res
+        
+        original_get = requests.get
+        requests.get = mock_get
+        
+        sleep_args = []
+        original_sleep = auto_lit.time.sleep
+        auto_lit.time.sleep = lambda s: sleep_args.append(s)
+        
         try:
-            auto_lit.PUBMED_KEY = "mock_key"
-            
-            # Mock requests.get and sleep
-            import requests
-            from unittest.mock import MagicMock
-            
-            mock_responses = [
-                MagicMock(status_code=200, json=lambda: {"esearchresult": {"idlist": ["1"]}}, raise_for_status=lambda: None),
-                MagicMock(status_code=200, content=b"<PubmedArticleSet></PubmedArticleSet>", raise_for_status=lambda: None)
-            ]
-            call_count = 0
-            def mock_get(*args, **kwargs):
-                nonlocal call_count
-                res = mock_responses[call_count]
-                call_count += 1
-                return res
-            
-            original_get = requests.get
-            requests.get = mock_get
-            
-            sleep_args = []
-            original_sleep = auto_lit.time.sleep
-            auto_lit.time.sleep = lambda s: sleep_args.append(s)
-            
-            try:
-                auto_lit._search_pubmed("query", limit=1)
-                self.assertIn(0.2, sleep_args)
-            finally:
-                auto_lit.time.sleep = original_sleep
-                requests.get = original_get
-                
-            # Test empty key
-            auto_lit.PUBMED_KEY = ""
-            requests.get = mock_get
-            call_count = 0
-            sleep_args = []
-            original_sleep = auto_lit.time.sleep
-            auto_lit.time.sleep = lambda s: sleep_args.append(s)
-            try:
-                auto_lit._search_pubmed("query", limit=1)
-                self.assertIn(1.5, sleep_args)
-            finally:
-                auto_lit.time.sleep = original_sleep
-                requests.get = original_get
+            auto_lit._search_pubmed("query", limit=1, pubmed_key="mock_key")
+            self.assertIn(0.2, sleep_args)
         finally:
-            auto_lit.PUBMED_KEY = original_key
+            auto_lit.time.sleep = original_sleep
+            requests.get = original_get
+            
+        # Test empty key
+        mock_responses2 = [
+            MagicMock(status_code=200, json=lambda: {"esearchresult": {"idlist": ["1"]}}, raise_for_status=lambda: None),
+            MagicMock(status_code=200, content=b"<PubmedArticleSet></PubmedArticleSet>", raise_for_status=lambda: None)
+        ]
+        call_count = 0
+        def mock_get2(*args, **kwargs):
+            nonlocal call_count
+            res = mock_responses2[call_count]
+            call_count += 1
+            return res
+        
+        requests.get = mock_get2
+        sleep_args = []
+        original_sleep = auto_lit.time.sleep
+        auto_lit.time.sleep = lambda s: sleep_args.append(s)
+        try:
+            auto_lit._search_pubmed("query", limit=1, pubmed_key="")
+            self.assertIn(1.5, sleep_args)
+        finally:
+            auto_lit.time.sleep = original_sleep
+            requests.get = original_get
 
     def test_web_import_path_does_not_write_ris_or_open_zotero(self):
         class Args:
