@@ -9,6 +9,7 @@ import re
 import threading
 from pathlib import Path
 from utils import file_sha256, chunk_text
+from errors import LLMCallError
 import llm_client
 from prompts import (
     VERIFY_CITATION_PROMPT,
@@ -223,8 +224,8 @@ def verify_citations(report_text: str, all_results: list[dict], client, model: s
             
             result = llm_client.call_json(client, "", VERIFY_CITATION_PROMPT.format(
                 report=prompt_report, findings_index=findings_index), model, 65536)
-        except Exception as e:
-            return f"⚠ 引用验证失败: {e}"
+        except LLMCallError as e:
+            return f"⚠ 引用验证失败 (attempts={e.attempts}): {e}"
         chunk_issues = result if isinstance(result, list) else [result]
         for iss in chunk_issues:
             if isinstance(iss, dict):
@@ -263,8 +264,8 @@ def verify_claim_map(report_text: str, client, model: str) -> str:
             model,
             65536,
         )
-    except Exception as e:
-        print(f"  ⚠ claim-map 抽取失败，跳过: {e}", flush=True)
+    except LLMCallError as e:
+        print(f"  ⚠ claim-map 抽取失败 (attempts={e.attempts})，跳过: {e}", flush=True)
         return f"## Claim-map 逻辑检查\n\n- ⚠️ claim-map 抽取失败，已降级使用常规逻辑验证: {e}\n\n"
 
     claims = _coerce_json_list(extracted)
@@ -302,8 +303,8 @@ def verify_claim_map(report_text: str, client, model: str) -> str:
             model,
             65536,
         )
-    except Exception as e:
-        print(f"  ⚠ claim-map 检查失败，跳过: {e}", flush=True)
+    except LLMCallError as e:
+        print(f"  ⚠ claim-map 检查失败 (attempts={e.attempts})，跳过: {e}", flush=True)
         return f"## Claim-map 逻辑检查\n\n- ⚠️ claim-map 检查失败，已降级使用常规逻辑验证: {e}\n\n"
 
     issues = _coerce_json_list(checked)
@@ -334,8 +335,8 @@ def verify_logic(report_text: str, client, model: str) -> str:
         try:
             result = llm_client.call_json(client, "", VERIFY_LOGIC_PROMPT.format(
                 report=f"【报告片段 {chunk_no}】\n{chunk}"), model, 65536)
-        except Exception as e:
-            return f"⚠ 逻辑验证失败: {e}"
+        except LLMCallError as e:
+            return f"⚠ 逻辑验证失败 (attempts={e.attempts}): {e}"
         chunk_issues = result if isinstance(result, list) else [result]
         for iss in chunk_issues:
             if isinstance(iss, dict):
@@ -379,8 +380,8 @@ def step6_fix_report(client, report: str, verification_feedback: str,
                                          verification_feedback=verification_feedback,
                                          findings_index=findings_index),
                                      model, 65536)
-    except Exception as e:
-        print(f"  ⚠ 修正失败: {e}，保留原报告", flush=True)
+    except LLMCallError as e:
+        print(f"  ⚠ 修正失败 (attempts={e.attempts}): {e}，保留原报告", flush=True)
         return report
 
     print(f"  ✅ 修正完成\n", flush=True)
