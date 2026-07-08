@@ -57,6 +57,10 @@ def get_step7_model(default: str = DEFAULT_STEP7_MODEL) -> str:
     return env_str("REVIEW_ASSISTANT_STEP7_MODEL", get_model(default))
 
 
+def get_rerank_model(default: str = DEFAULT_FLASH_MODEL) -> str:
+    return env_str("REVIEW_ASSISTANT_RERANK_MODEL", get_step7_model(default))
+
+
 def get_workers(default: int) -> int:
     workers = env_int("REVIEW_ASSISTANT_WORKERS", default)
     return max(1, workers)
