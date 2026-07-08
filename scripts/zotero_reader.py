@@ -4,6 +4,7 @@ import os
 import re
 import sqlite3
 import shutil
+import sys
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -111,8 +112,9 @@ class ZoteroReader:
             full = Path(path)
             if full.is_absolute() and full.exists():
                 return full
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[zotero_reader] 路径解析异常 ({path[:80]}): {e}",
+                  file=sys.stderr, flush=True)
 
         return None
 
