@@ -5,12 +5,15 @@ __pycache__/
 cache/
 findings/
 alpha_metabolism_output/
-synthesize_output/
+synthesis_output/
 output/
 *.ris
 *.svg
 *.png
 *.json
 !outline.json
+!evals/evals.json
+!evals/trigger_evals.json
 .DS_Store
 *.zip
+evals/eval_review.html

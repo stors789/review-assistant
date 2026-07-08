@@ -1,0 +1,35 @@
+{
+  "skill_name": "review-assistant",
+  "evals": [
+    {
+      "id": 1,
+      "name": "list-collections",
+      "prompt": "帮我看看Zotero里有哪些论文集",
+      "expected_output": "列出所有论文集的层级路径及PDF覆盖情况（总数/有PDF/缺PDF）",
+      "files": [],
+      "assertions": [
+        {"text": "脚本成功运行并输出表格形式的论文集列表", "passed": true, "evidence": "python3 scripts/paper_breakdown.py --list-collections 返回正常"}
+      ]
+    },
+    {
+      "id": 2,
+      "name": "breakdown-collection",
+      "prompt": "拆解一下alpha这个论文集",
+      "expected_output": "对'电波 > alpha'下的16篇PDF执行结构化拆解，输出JSON和CSV汇总",
+      "files": [],
+      "assertions": [
+        {"text": "paper_breakdown.py 能从Zotero获取PDF列表", "passed": true, "evidence": "zotero_reader.ZoteroReader.get_papers() 返回16篇"}
+      ]
+    },
+    {
+      "id": 3,
+      "name": "claim-verify-paragraph",
+      "prompt": "我写了这段综述，帮我验证一下里面的说法有没有文献支撑：AMPK激活可抑制mTOR信号通路，从而促进自噬。",
+      "expected_output": "调用claim_verify.py对段落进行主张分解和原文逐条验证",
+      "files": [],
+      "assertions": [
+        {"text": "claim_verify.py 能正常导入且CLI参数正确", "passed": true, "evidence": "python3 scripts/claim_verify.py --help 返回参数列表"}
+      ]
+    }
+  ]
+}
