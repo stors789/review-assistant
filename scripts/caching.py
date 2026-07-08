@@ -7,6 +7,7 @@ import json
 import hashlib
 from pathlib import Path
 from utils import file_sha256
+import sys
 
 # Cache Versions
 FINDINGS_CACHE_VERSION = "2026-06-14-v4"
@@ -39,7 +40,9 @@ def outline_cache_matches(meta_path: Path, question: str, model: str) -> bool:
         return False
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        print(f"[caching] 缓存元数据读取失败 ({meta_path.name}): {e}",
+              file=sys.stderr, flush=True)
         return False
     return (
         meta.get("version") == OUTLINE_CACHE_VERSION
@@ -71,7 +74,9 @@ def step_cache_matches(meta_path: Path, expected_meta: dict) -> bool:
         return False
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        print(f"[caching] 缓存元数据读取失败 ({meta_path.name}): {e}",
+              file=sys.stderr, flush=True)
         return False
     return all(meta.get(key) == value for key, value in expected_meta.items())
 
@@ -82,7 +87,9 @@ def load_cached_sections(sections_path: Path, meta_path: Path, expected_meta: di
         return None
     try:
         payload = json.loads(sections_path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        print(f"[caching] 缓存章节数据读取失败 ({sections_path.name}): {e}",
+              file=sys.stderr, flush=True)
         return None
     sections = payload.get("sections")
     paper_refs = payload.get("paper_refs")
@@ -113,7 +120,9 @@ def load_cached_report(report_path: Path, meta_path: Path, expected_meta: dict) 
         return None
     try:
         return report_path.read_text(encoding="utf-8")
-    except Exception:
+    except Exception as e:
+        print(f"[caching] 缓存报告读取失败 ({report_path.name}): {e}",
+              file=sys.stderr, flush=True)
         return None
 
 
