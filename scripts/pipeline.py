@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from config import DEFAULT_FLASH_MODEL
 from utils import file_sha256
 from extraction import prepare_pdf_text, build_extraction_prompt
 from errors import PDFExtractionError, LLMCallError
@@ -669,7 +670,7 @@ def choose_table_view(views: list[dict]) -> dict:
     )
 
 
-def step7_summary(client_factory, report_text: str, step7_model: str = "deepseek-v4-flash") -> dict:
+def step7_summary(client_factory, report_text: str, step7_model: str = DEFAULT_FLASH_MODEL) -> dict:
     """Step 7: Concurrent generation of Markdown summary table and Mermaid diagram."""
     print(f"── Step 7: 生成总结图表 ──", flush=True)
     result = {"table": "", "diagram": ""}
