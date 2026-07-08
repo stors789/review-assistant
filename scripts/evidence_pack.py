@@ -57,7 +57,6 @@ VARIABLE_ROLES = {
     "exposure", "outcome", "mediator", "moderator", "descriptor", "unknown",
 }
 
-_QUERY_TERMS_CACHE = {}
 
 
 def _canonical_section(line: str) -> str | None:
@@ -223,11 +222,13 @@ def build_boundary_chunks(text: str, front_chars: int = 6000, tail_chars: int = 
     return chunks
 
 
-def extract_question_terms(question: str, client=None, model: str = None) -> list[str]:
+def extract_question_terms(question: str, client=None, model: str = None,
+                           cache: dict | None = None) -> list[str]:
     """Extract search terms using LLM for cross-lingual support or fallback to regex."""
-    global _QUERY_TERMS_CACHE
-    if question in _QUERY_TERMS_CACHE:
-        return _QUERY_TERMS_CACHE[question]
+    if cache is None:
+        cache = {}
+    if question in cache:
+        return cache[question]
 
     if client and model:
         print(f"  🔍 正在使用 AI 提取跨语言搜索词...", flush=True)
@@ -250,7 +251,7 @@ Example output:
             terms = res.get("search_terms", [])
             if isinstance(terms, list) and terms:
                 valid = [str(t) for t in terms if isinstance(t, str)]
-                _QUERY_TERMS_CACHE[question] = valid
+                cache[question] = valid
                 print(f"  [AI 跨语言搜索词] {valid}", flush=True)
                 return valid
         except Exception as e:
@@ -258,7 +259,7 @@ Example output:
                   file=sys.stderr, flush=True)
 
     raw = re.findall(r"[A-Za-z0-9_\-]+|[\u4e00-\u9fff]{2,}", question)
-    _QUERY_TERMS_CACHE[question] = raw
+    cache[question] = raw
     return raw
 
 
