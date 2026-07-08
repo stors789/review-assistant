@@ -60,8 +60,10 @@ def _get_ss_lock_file() -> Path:
         home = Path.home()
         if home.is_dir() and os.access(home, os.W_OK):
             return home / ".auto_lit_ss_lock.txt"
-    except Exception:
-        pass
+    except Exception as e:
+        import sys
+        print(f"[auto_lit] 临时目录创建失败，回退使用 /tmp: {e}",
+              file=sys.stderr, flush=True)
     import tempfile
     return Path(tempfile.gettempdir()) / ".auto_lit_ss_lock.txt"
 
@@ -151,7 +153,9 @@ def _search_pubmed(query: str, limit: int = 20) -> list[dict]:
         r.raise_for_status()
         data = r.json()
     except Exception as e:
-        print(f"  ❌ PubMed Search API 请求失败: {e}", flush=True)
+        import sys
+        print(f"  ❌ PubMed Search API 请求失败: {e}",
+              file=sys.stderr, flush=True)
         return []
         
     id_list = data.get("esearchresult", {}).get("idlist", [])
@@ -174,7 +178,9 @@ def _search_pubmed(query: str, limit: int = 20) -> list[dict]:
         r_fetch = requests.get(PUBMED_FETCH_API, params=fetch_params, headers=headers, timeout=20)
         r_fetch.raise_for_status()
     except Exception as e:
-        print(f"  ❌ PubMed Fetch API (XML) 请求失败: {e}", flush=True)
+        import sys
+        print(f"  ❌ PubMed Fetch API (XML) 请求失败: {e}",
+              file=sys.stderr, flush=True)
         return []
         
     # 4. Parse XML
@@ -256,9 +262,13 @@ def _search_pubmed(query: str, limit: int = 20) -> list[dict]:
                     "oa_pdf_url": f"https://pmc.ncbi.nlm.nih.gov/articles/{pmc}/pdf/" if pmc else None
                 })
             except Exception as item_err:
-                print(f"  ⚠ 解析单篇文献 XML 失败，跳过: {item_err}", flush=True)
+                import sys
+                print(f"  ⚠ 解析单篇文献 XML 失败，跳过: {item_err}",
+                      file=sys.stderr, flush=True)
     except Exception as e:
-        print(f"  ❌ 解析 PubMed XML 失败: {e}", flush=True)
+        import sys
+        print(f"  ❌ 解析 PubMed XML 失败: {e}",
+              file=sys.stderr, flush=True)
         return []
         
     return papers
@@ -303,7 +313,8 @@ def _search_ss(query: str, limit: int = 20) -> list[dict]:
         r.raise_for_status()
         return r.json().get("data", [])
     except Exception as e:
-        print(f"  ⚠ SS: {e}", flush=True)
+        import sys
+        print(f"  ⚠ SS: {e}", file=sys.stderr, flush=True)
         return []
 
 
@@ -318,7 +329,10 @@ def _get_existing_dois(zotero_dir=None) -> set[str]:
                 "WHERE f.fieldName = 'DOI' AND v.value IS NOT NULL AND v.value != ''"
             )
             return {row[0].strip().lower() for row in rows}
-    except Exception:
+    except Exception as e:
+        import sys
+        print(f"[auto_lit] Zotero DOI 查询失败: {e}",
+              file=sys.stderr, flush=True)
         return set()
 
 
@@ -535,7 +549,10 @@ def _try_import_ris(ris_path: str) -> bool:
         subprocess.run(["open", "-a", "Zotero", ris_path], check=True, timeout=5)
         print(f"  ✅ 已发送到 Zotero（在导入对话框中确认）", flush=True)
         return True
-    except Exception:
+    except Exception as e:
+        import sys
+        print(f"[auto_lit] Zotero 自动导入失败: {e}",
+              file=sys.stderr, flush=True)
         return False
 
 
@@ -660,7 +677,8 @@ def main():
         try:
             rules = json.loads(Path(args.screen_rules).read_text(encoding="utf-8"))
         except Exception as e:
-            print(f"❌ 无法加载筛选规则 JSON: {e}", flush=True)
+            print(f"❌ 无法加载筛选规则 JSON: {e}",
+                  file=sys.stderr, flush=True)
             sys.exit(1)
 
     existing = _get_existing_dois(zotero_dir=args.zotero_dir)
