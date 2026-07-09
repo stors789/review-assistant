@@ -17,6 +17,18 @@ def select_file():
     root.destroy()
     return {"path": file_path}
 
+@router.get("/select-env-file")
+def select_env_file():
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    file_path = filedialog.askopenfilename(
+        title="Select API Environment File",
+        filetypes=[("Env files", "*.env"), ("All files", "*.*")]
+    )
+    root.destroy()
+    return {"path": file_path}
+
 @router.get("/select-folder")
 def select_folder():
     root = tk.Tk()

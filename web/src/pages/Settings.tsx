@@ -1,24 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Loader2, Key, Database, Globe } from 'lucide-react';
+import { Save, Loader2, Key, Database, Globe, FolderOpen } from 'lucide-react';
 
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
+  const [envPath, setEnvPath] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   useEffect(() => {
-    fetch('/api/settings/')
-      .then(res => res.json())
-      .then(data => {
-        setSettings(data.settings || {});
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error(err);
-        setMessage({ type: 'error', text: 'Failed to load settings.' });
-        setLoading(false);
-      });
+    Promise.all([
+      fetch('/api/settings/').then(res => res.json()),
+      fetch('/api/settings/env-path').then(res => res.json())
+    ])
+    .then(([settingsData, pathData]) => {
+      setSettings(settingsData.settings || {});
+      setEnvPath(pathData.path || '');
+      setLoading(false);
+    })
+    .catch(err => {
+      console.error(err);
+      setMessage({ type: 'error', text: 'Failed to load settings.' });
+      setLoading(false);
+    });
   }, []);
 
   const handleChange = (key: string, value: string) => {
@@ -64,6 +68,32 @@ const Settings: React.FC = () => {
     });
   };
 
+  const handleSelectEnv = async () => {
+    try {
+      const res = await fetch('/api/system/select-env-file');
+      const data = await res.json();
+      if (data.path) {
+        setEnvPath(data.path);
+        await fetch('/api/settings/env-path', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: data.path })
+        });
+        
+        // Reload settings from new path
+        setLoading(true);
+        const settingsRes = await fetch('/api/settings/');
+        const settingsData = await settingsRes.json();
+        setSettings(settingsData.settings || {});
+        setMessage({ type: 'success', text: `Loaded settings from ${data.path}` });
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error(err);
+      setMessage({ type: 'error', text: 'Failed to select environment file.' });
+    }
+  };
+
   if (loading) {
     return <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}><Loader2 size={16} className="animate-spin"/> Loading settings...</div>;
   }
@@ -95,6 +125,26 @@ const Settings: React.FC = () => {
           {message.text}
         </div>
       )}
+
+      {/* Global Configuration */}
+      <div className="glass-panel card" style={{ marginBottom: '1.5rem' }}>
+        <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <FolderOpen size={20} color="var(--accent-color)" /> Configuration File
+        </h2>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <input 
+            type="text" 
+            value={envPath} 
+            readOnly
+            className="input-field"
+            placeholder="No environment file selected"
+            style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--text-secondary)' }}
+          />
+          <button className="btn btn-primary" onClick={handleSelectEnv} style={{ padding: '0.75rem 1.5rem' }}>
+            Choose File
+          </button>
+        </div>
+      </div>
 
       {/* LLM Configuration */}
       <div className="glass-panel card" style={{ marginBottom: '1.5rem' }}>
