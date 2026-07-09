@@ -63,6 +63,7 @@ class BreakdownRequest(BaseModel):
     collection: Optional[str] = None
     item: Optional[str] = None
     local_path: Optional[str] = None
+    output_path: Optional[str] = None
 
 @router.post("/breakdown")
 async def paper_breakdown(req: BreakdownRequest):
@@ -79,6 +80,9 @@ async def paper_breakdown(req: BreakdownRequest):
             return StreamingResponse(err(), media_type="text/event-stream")
         cmd.extend(["--input", req.local_path])
         
+    if req.output_path:
+        cmd.extend(["--output", req.output_path])
+        
     return StreamingResponse(run_subprocess_and_stream(cmd), media_type="text/event-stream")
 
 class SynthesizeRequest(BaseModel):
@@ -86,6 +90,7 @@ class SynthesizeRequest(BaseModel):
     collection: Optional[str] = None
     local_path: Optional[str] = None
     question: str
+    output_path: Optional[str] = None
 
 @router.post("/synthesize")
 async def paper_synthesize(req: SynthesizeRequest):
@@ -101,5 +106,8 @@ async def paper_synthesize(req: SynthesizeRequest):
             async def err(): yield "data: {\"status\": \"[Error] Missing local path\"}\n\n"
             return StreamingResponse(err(), media_type="text/event-stream")
         cmd.extend(["--input", req.local_path])
+        
+    if req.output_path:
+        cmd.extend(["--output", req.output_path])
         
     return StreamingResponse(run_subprocess_and_stream(cmd), media_type="text/event-stream")
