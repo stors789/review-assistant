@@ -182,6 +182,44 @@ const Settings: React.FC = () => {
               />
             </div>
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.5rem' }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Temperature</label>
+              <input 
+                type="number" 
+                step="0.1" min="0" max="2"
+                value={settings['REVIEW_ASSISTANT_TEMPERATURE'] || '0.0'}
+                onChange={(e) => handleChange('REVIEW_ASSISTANT_TEMPERATURE', e.target.value)}
+                title="Higher values make output more random (0.0 - 2.0)"
+                className="input-field"
+                style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Thinking Level (Reasoning Effort)</label>
+              <select 
+                value={settings['REVIEW_ASSISTANT_REASONING_EFFORT'] || 'high'}
+                onChange={(e) => handleChange('REVIEW_ASSISTANT_REASONING_EFFORT', e.target.value)}
+                style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '0.5rem' }}>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Global System Prompt Prefix</label>
+            <textarea 
+              value={settings['REVIEW_ASSISTANT_SYSTEM_PROMPT_PREFIX'] || ''}
+              onChange={(e) => handleChange('REVIEW_ASSISTANT_SYSTEM_PROMPT_PREFIX', e.target.value)}
+              placeholder="e.g. Always respond in Traditional Chinese... (Optional)"
+              rows={3}
+              style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)', resize: 'vertical' }}
+            />
+          </div>
         </div>
       </div>
 

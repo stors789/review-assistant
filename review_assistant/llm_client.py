@@ -9,7 +9,7 @@ import json
 import itertools
 import threading
 from openai import OpenAI
-from .config import DEFAULT_BASE_URL, DEFAULT_FLASH_MODEL, get_api_key, should_strip_proxy
+from .config import DEFAULT_BASE_URL, DEFAULT_FLASH_MODEL, get_api_key, should_strip_proxy, get_temperature, get_reasoning_effort, get_system_prompt_prefix
 from .errors import LLMCallError
 
 
@@ -126,13 +126,14 @@ def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: in
     last_err = None
     for attempt in range(retries + 1):
         try:
+            sys_prompt = get_system_prompt_prefix() + "\n" + system if get_system_prompt_prefix() else system
             kwargs = {
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": system},
+                    {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": user},
                 ],
-                "temperature": 0,
+                "temperature": get_temperature(0),
                 "max_tokens": max_tokens,
             }
             # Only add reasoning parameters if model name indicates reasoning capability
@@ -140,11 +141,11 @@ def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: in
             is_deepseek_reasoning = any(x in model.lower() for x in ("reasoner", "r1", "pro"))
             
             if is_openai_reasoning:
-                kwargs["reasoning_effort"] = "high"
+                kwargs["reasoning_effort"] = get_reasoning_effort("high")
                 if "temperature" in kwargs:
                     del kwargs["temperature"]
             elif is_deepseek_reasoning:
-                kwargs["reasoning_effort"] = "high"
+                kwargs["reasoning_effort"] = get_reasoning_effort("high")
                 kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
             try:
@@ -156,7 +157,7 @@ def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: in
                     kwargs.pop("reasoning_effort", None)
                     kwargs.pop("extra_body", None)
                     if "temperature" not in kwargs:
-                        kwargs["temperature"] = 0
+                        kwargs["temperature"] = get_temperature(0)
                     resp = client.chat.completions.create(**kwargs)
                 else:
                     raise
@@ -189,13 +190,14 @@ def call_json_light(client: OpenAI, system: str, user: str, model: str = DEFAULT
     last_err = None
     for attempt in range(retries + 1):
         try:
+            sys_prompt = get_system_prompt_prefix() + "\n" + system if get_system_prompt_prefix() else system
             resp = client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": system},
+                    {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": user},
                 ],
-                temperature=0,
+                temperature=get_temperature(0),
                 max_tokens=max_tokens,
             )
             content = resp.choices[0].message.content
@@ -229,7 +231,7 @@ def call_text(client: OpenAI, prompt: str, model: str, max_tokens: int = 4096, r
             kwargs = {
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": temperature,
+                "temperature": get_temperature(temperature),
                 "max_tokens": max_tokens,
             }
             # Only add reasoning parameters if model name indicates reasoning capability
@@ -237,11 +239,11 @@ def call_text(client: OpenAI, prompt: str, model: str, max_tokens: int = 4096, r
             is_deepseek_reasoning = any(x in model.lower() for x in ("reasoner", "r1", "pro"))
 
             if is_openai_reasoning:
-                kwargs["reasoning_effort"] = "high"
+                kwargs["reasoning_effort"] = get_reasoning_effort("high")
                 if "temperature" in kwargs:
                     del kwargs["temperature"]
             elif is_deepseek_reasoning:
-                kwargs["reasoning_effort"] = "high"
+                kwargs["reasoning_effort"] = get_reasoning_effort("high")
                 kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
             try:
@@ -253,7 +255,7 @@ def call_text(client: OpenAI, prompt: str, model: str, max_tokens: int = 4096, r
                     kwargs.pop("reasoning_effort", None)
                     kwargs.pop("extra_body", None)
                     if "temperature" not in kwargs:
-                        kwargs["temperature"] = temperature
+                        kwargs["temperature"] = get_temperature(temperature)
                     resp = client.chat.completions.create(**kwargs)
                 else:
                     raise

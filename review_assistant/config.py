@@ -66,6 +66,24 @@ def get_workers(default: int) -> int:
     return max(1, workers)
 
 
+def get_temperature(default: float = 0.0) -> float:
+    value = os.environ.get("REVIEW_ASSISTANT_TEMPERATURE")
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def get_reasoning_effort(default: str = "high") -> str:
+    return env_str("REVIEW_ASSISTANT_REASONING_EFFORT", default)
+
+
+def get_system_prompt_prefix(default: str = "") -> str:
+    return env_str("REVIEW_ASSISTANT_SYSTEM_PROMPT_PREFIX", default)
+
+
 def should_strip_proxy(default: bool = True) -> bool:
     if os.environ.get("REVIEW_ASSISTANT_USE_PROXY") is not None:
         return not env_bool("REVIEW_ASSISTANT_USE_PROXY", False)
