@@ -1,11 +1,12 @@
 import React from 'react';
 import { Routes, Route, NavLink } from 'react-router-dom';
 import { useTheme } from './ThemeContext';
-import { Sun, Moon, Library, CheckCircle, FileText, Share2, Sparkles } from 'lucide-react';
+import { Sun, Moon, Library, CheckCircle, FileText, Share2, Sparkles, Settings as SettingsIcon } from 'lucide-react';
 import ZoteroExplorer from './pages/ZoteroExplorer';
 import ClaimVerifier from './pages/ClaimVerifier';
 import PaperBreakdown from './pages/PaperBreakdown';
 import Synthesizer from './pages/Synthesizer';
+import Settings from './pages/Settings';
 
 const App: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -33,6 +34,12 @@ const App: React.FC = () => {
             <Share2 size={20} /> Synthesizer
           </NavLink>
         </nav>
+        
+        <div style={{ marginTop: 'auto', borderTop: '1px solid var(--surface-border)', paddingTop: '1rem' }}>
+          <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <SettingsIcon size={20} /> Settings
+          </NavLink>
+        </div>
       </aside>
 
       {/* Main Content */}
@@ -51,6 +58,7 @@ const App: React.FC = () => {
             <Route path="/verify" element={<ClaimVerifier />} />
             <Route path="/breakdown" element={<PaperBreakdown />} />
             <Route path="/synthesize" element={<Synthesizer />} />
+            <Route path="/settings" element={<Settings />} />
           </Routes>
         </div>
       </main>
