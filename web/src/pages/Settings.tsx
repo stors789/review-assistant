@@ -138,7 +138,7 @@ const Settings: React.FC = () => {
             readOnly
             className="input-field"
             placeholder="No environment file selected"
-            style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--text-secondary)' }}
+            style={{ flex: 1, background: 'rgba(0,0,0,0.05)' }}
           />
           <button className="btn btn-primary" onClick={handleSelectEnv} style={{ padding: '0.75rem 1.5rem' }}>
             Choose File
@@ -160,7 +160,7 @@ const Settings: React.FC = () => {
                value={settings['REVIEW_ASSISTANT_WORKERS'] || '5'}
                onChange={(e) => handleChange('REVIEW_ASSISTANT_WORKERS', e.target.value)}
                title="Set to 1 to disable concurrent requests"
-               style={{ width: '60px', padding: '0.25rem 0.5rem', borderRadius: '4px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+               className="input-field" style={{ width: '60px', padding: '0.25rem 0.5rem' }}
              />
           </div>
         </h2>
@@ -174,7 +174,7 @@ const Settings: React.FC = () => {
               onChange={(e) => handleChange(settings['DEEPSEEK_API_KEY'] !== undefined ? 'DEEPSEEK_API_KEY' : 'OPENAI_API_KEY', e.target.value)}
               placeholder="sk-..."
               className="input-field"
-              style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+              
             />
           </div>
           
@@ -188,7 +188,7 @@ const Settings: React.FC = () => {
                   onChange={(e) => handleChange(k, e.target.value)}
                   placeholder="sk-..."
                   className="input-field"
-                  style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+                  
                 />
               </div>
               <button className="btn" style={{ height: '46px', color: '#ef4444', borderColor: '#ef4444' }} onClick={() => handleRemoveKey(k)}>Remove</button>
@@ -205,7 +205,7 @@ const Settings: React.FC = () => {
               onChange={(e) => handleChange('REVIEW_ASSISTANT_BASE_URL', e.target.value)}
               placeholder="https://api.deepseek.com"
               className="input-field"
-              style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+              
             />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -217,7 +217,7 @@ const Settings: React.FC = () => {
                 onChange={(e) => handleChange('REVIEW_ASSISTANT_MODEL', e.target.value)}
                 placeholder="deepseek-v4-pro"
                 className="input-field"
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+                
               />
             </div>
             <div>
@@ -228,7 +228,7 @@ const Settings: React.FC = () => {
                 onChange={(e) => handleChange('REVIEW_ASSISTANT_STEP7_MODEL', e.target.value)}
                 placeholder="deepseek-v4-pro"
                 className="input-field"
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+                
               />
             </div>
           </div>
@@ -243,7 +243,7 @@ const Settings: React.FC = () => {
                 onChange={(e) => handleChange('REVIEW_ASSISTANT_TEMPERATURE', e.target.value)}
                 title="Higher values make output more random (0.0 - 2.0)"
                 className="input-field"
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+                
               />
             </div>
             <div>
@@ -251,7 +251,8 @@ const Settings: React.FC = () => {
               <select 
                 value={settings['REVIEW_ASSISTANT_REASONING_EFFORT'] || 'high'}
                 onChange={(e) => handleChange('REVIEW_ASSISTANT_REASONING_EFFORT', e.target.value)}
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+                className="input-field"
+                
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
@@ -267,7 +268,8 @@ const Settings: React.FC = () => {
               onChange={(e) => handleChange('REVIEW_ASSISTANT_SYSTEM_PROMPT_PREFIX', e.target.value)}
               placeholder="e.g. Always respond in Traditional Chinese... (Optional)"
               rows={3}
-              style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)', resize: 'vertical' }}
+              className="input-field"
+              style={{ resize: 'vertical' }}
             />
           </div>
         </div>
@@ -287,7 +289,7 @@ const Settings: React.FC = () => {
               value={settings['SS_API_KEY'] || ''}
               onChange={(e) => handleChange('SS_API_KEY', e.target.value)}
               className="input-field"
-              style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+              
             />
           </div>
           <div>
@@ -297,7 +299,7 @@ const Settings: React.FC = () => {
               value={settings['PUBMED_API_KEY'] || ''}
               onChange={(e) => handleChange('PUBMED_API_KEY', e.target.value)}
               className="input-field"
-              style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+              
             />
           </div>
         </div>
@@ -317,7 +319,7 @@ const Settings: React.FC = () => {
               value={settings['ZOTERO_API_KEY'] || ''}
               onChange={(e) => handleChange('ZOTERO_API_KEY', e.target.value)}
               className="input-field"
-              style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+              
             />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -326,7 +328,8 @@ const Settings: React.FC = () => {
               <select 
                 value={settings['ZOTERO_LIBRARY_TYPE'] || 'user'}
                 onChange={(e) => handleChange('ZOTERO_LIBRARY_TYPE', e.target.value)}
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+                className="input-field"
+                
               >
                 <option value="user">Personal (user)</option>
                 <option value="group">Group</option>
@@ -339,7 +342,7 @@ const Settings: React.FC = () => {
                 value={settings['ZOTERO_LIBRARY_ID'] || ''}
                 onChange={(e) => handleChange('ZOTERO_LIBRARY_ID', e.target.value)}
                 className="input-field"
-                style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+                
               />
             </div>
           </div>

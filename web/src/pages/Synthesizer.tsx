@@ -110,7 +110,8 @@ const Synthesizer: React.FC = () => {
                     value={localPath} 
                     onChange={(e) => setLocalPath(e.target.value)} 
                     placeholder="Absolute path to folder with PDFs" 
-                    style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--text-primary)' }}
+                    className="input-field"
+                    style={{ flex: 1, background: 'rgba(0,0,0,0.05)' }}
                   />
                   <button className="btn" onClick={handleSelectLocalFolder} style={{ background: 'var(--surface-color)' }}>Browse</button>
                 </div>
