@@ -17,4 +17,6 @@ output/
 .DS_Store
 *.zip
 evals/eval_review.html
-review_assistant.egg-info/
+*.egg-info/
+build/
+dist/
