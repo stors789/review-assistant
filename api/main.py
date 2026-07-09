@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from .routers import zotero, tasks, system, settings
+import os
 
 app = FastAPI(
     title="Review Assistant API",
@@ -24,3 +27,20 @@ app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
+
+# Serve the compiled React frontend
+# Determine path relative to this file or current working directory
+dist_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "dist")
+if not os.path.exists(dist_path):
+    dist_path = os.path.join(os.getcwd(), "web", "dist")
+
+if os.path.exists(dist_path):
+    app.mount("/assets", StaticFiles(directory=os.path.join(dist_path, "assets")), name="assets")
+
+    # Serve index.html for all other routes to support React Router SPA
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        index_file = os.path.join(dist_path, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        return {"error": "Frontend not built"}
