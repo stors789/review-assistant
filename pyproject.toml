@@ -20,28 +20,11 @@ dependencies = [
 ]
 
 [project.scripts]
-review-assistant-read = "zotero_read:main"
-review-assistant-verify = "claim_verify:main"
-review-assistant-breakdown = "paper_breakdown:main"
-review-assistant-synthesize = "explore_synthesize:main"
-review-assistant-autolit = "auto_lit:main"
+review-assistant-read = "review_assistant.zotero_read:main"
+review-assistant-verify = "review_assistant.claim_verify:main"
+review-assistant-breakdown = "review_assistant.paper_breakdown:main"
+review-assistant-synthesize = "review_assistant.explore_synthesize:main"
+review-assistant-autolit = "review_assistant.auto_lit:main"
 
 [tool.setuptools]
-package-dir = {"" = "scripts"}
-py-modules = [
-    "zotero_reader",
-    "zotero_web",
-    "zotero_read",
-    "claim_verify",
-    "paper_breakdown",
-    "explore_synthesize",
-    "auto_lit",
-    "llm_client",
-    "config",
-    "pipeline",
-    "utils",
-    "caching",
-    "prompts",
-    "verification",
-    "evidence_pack"
-]
+packages = ["review_assistant"]
