@@ -7,6 +7,7 @@ const Synthesizer: React.FC = () => {
   const [collection, setCollection] = useState('');
   const [localPath, setLocalPath] = useState('');
   const [question, setQuestion] = useState('');
+  const [outputPath, setOutputPath] = useState('');
   
   const [logs, setLogs] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -23,10 +24,27 @@ const Synthesizer: React.FC = () => {
     }
   };
 
+  const handleSelectOutputFolder = async () => {
+    try {
+      const res = await fetch('/api/system/select-folder');
+      const data = await res.json();
+      if (data.path) {
+        setOutputPath(data.path);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const isReady = () => {
     if (activeTab === 'collection') return !!collection && !!question;
     if (activeTab === 'local') return !!localPath && !!question;
     return false;
+  };
+
+  const handleReset = () => {
+    setLogs([]);
+    setIsProcessing(false);
   };
 
   const handleSynthesize = async () => {
@@ -35,7 +53,7 @@ const Synthesizer: React.FC = () => {
     setIsProcessing(true);
     setLogs(['Starting literature synthesis...']);
 
-    const payload = { mode: activeTab, collection, local_path: localPath, question };
+    const payload = { mode: activeTab, collection, local_path: localPath, question, output_path: outputPath };
 
     try {
       const response = await fetch('/api/tasks/synthesize', {
@@ -74,6 +92,8 @@ const Synthesizer: React.FC = () => {
     }
   };
 
+  const hasStarted = logs.length > 0;
+
   return (
     <div>
       <h1 className="page-title">Literature Synthesizer</h1>
@@ -83,63 +103,92 @@ const Synthesizer: React.FC = () => {
         <div className="glass-panel card">
           <h2 className="section-title">New Synthesis Task</h2>
           
-          {/* Tabs */}
-          <div className="tab-container">
-            <button className={`btn ${activeTab === 'collection' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('collection')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Folder size={16}/> Collection
+          <div style={{ opacity: hasStarted ? 0.5 : 1, pointerEvents: hasStarted ? 'none' : 'auto' }}>
+            {/* Tabs */}
+            <div className="tab-container">
+              <button className={`btn ${activeTab === 'collection' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('collection')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Folder size={16}/> Collection
+              </button>
+              <button className={`btn ${activeTab === 'local' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('local')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Search size={16}/> Local Folder
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '1.5rem', minHeight: '80px' }}>
+              {activeTab === 'collection' && (
+                <>
+                  <label className="form-label">Select Zotero Collection</label>
+                  <CollectionSelector value={collection} onChange={setCollection} />
+                </>
+              )}
+
+              {activeTab === 'local' && (
+                <>
+                  <label className="form-label">Select Local Folder</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input 
+                      type="text" 
+                      value={localPath} 
+                      onChange={(e) => setLocalPath(e.target.value)} 
+                      placeholder="Absolute path to folder with PDFs" 
+                      className="input-field"
+                      style={{ flex: 1, background: 'rgba(0,0,0,0.05)' }}
+                    />
+                    <button className="btn" onClick={handleSelectLocalFolder} style={{ background: 'var(--surface-color)' }}>Browse</button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label className="form-label">Research Question</label>
+              <textarea 
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="e.g. What are the current limitations of Graph Neural Networks in molecular property prediction?"
+                rows={4}
+                className="input-field"
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label className="form-label">Output Directory (Optional)</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input 
+                  type="text" 
+                  value={outputPath} 
+                  onChange={(e) => setOutputPath(e.target.value)} 
+                  placeholder="Default: output/" 
+                  className="input-field"
+                  style={{ flex: 1, background: 'rgba(0,0,0,0.05)' }}
+                />
+                <button className="btn" onClick={handleSelectOutputFolder} style={{ background: 'var(--surface-color)' }}>Browse</button>
+              </div>
+            </div>
+          </div>
+
+          {!hasStarted ? (
+            <button 
+              className="btn btn-primary" 
+              onClick={handleSynthesize}
+              disabled={isProcessing || !isReady()}
+              style={{ width: '100%', gap: '0.5rem' }}
+            >
+              {isProcessing ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+              {isProcessing ? 'Synthesizing...' : 'Run Synthesis'}
             </button>
-            <button className={`btn ${activeTab === 'local' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('local')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Search size={16}/> Local Folder
+          ) : (
+            <button 
+              className="btn btn-primary" 
+              onClick={handleReset}
+              disabled={isProcessing}
+              style={{ width: '100%', gap: '0.5rem' }}
+            >
+              {isProcessing ? <Loader2 className="animate-spin" size={18} /> : null}
+              {isProcessing ? 'Synthesizing...' : 'New Analysis'}
             </button>
-          </div>
-
-          <div style={{ marginBottom: '1.5rem', minHeight: '80px' }}>
-            {activeTab === 'collection' && (
-              <>
-                <label className="form-label">Select Zotero Collection</label>
-                <CollectionSelector value={collection} onChange={setCollection} />
-              </>
-            )}
-
-            {activeTab === 'local' && (
-              <>
-                <label className="form-label">Select Local Folder</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <input 
-                    type="text" 
-                    value={localPath} 
-                    onChange={(e) => setLocalPath(e.target.value)} 
-                    placeholder="Absolute path to folder with PDFs" 
-                    className="input-field"
-                    style={{ flex: 1, background: 'rgba(0,0,0,0.05)' }}
-                  />
-                  <button className="btn" onClick={handleSelectLocalFolder} style={{ background: 'var(--surface-color)' }}>Browse</button>
-                </div>
-              </>
-            )}
-          </div>
-
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label className="form-label">Research Question</label>
-            <textarea 
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder="e.g. What are the current limitations of Graph Neural Networks in molecular property prediction?"
-              rows={4}
-              className="input-field"
-              style={{ resize: 'vertical' }}
-            />
-          </div>
-
-          <button 
-            className="btn btn-primary" 
-            onClick={handleSynthesize}
-            disabled={isProcessing || !isReady()}
-            style={{ width: '100%', gap: '0.5rem' }}
-          >
-            {isProcessing ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
-            {isProcessing ? 'Synthesizing...' : 'Run Synthesis'}
-          </button>
+          )}
         </div>
 
         {/* Real-time Logs */}

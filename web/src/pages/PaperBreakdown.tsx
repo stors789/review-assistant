@@ -8,6 +8,7 @@ const PaperBreakdown: React.FC = () => {
   const [collection, setCollection] = useState('');
   const [item, setItem] = useState('');
   const [localPath, setLocalPath] = useState('');
+  const [outputPath, setOutputPath] = useState('');
   
   const [logs, setLogs] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -24,11 +25,28 @@ const PaperBreakdown: React.FC = () => {
     }
   };
 
+  const handleSelectOutputFolder = async () => {
+    try {
+      const res = await fetch('/api/system/select-folder');
+      const data = await res.json();
+      if (data.path) {
+        setOutputPath(data.path);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const isReady = () => {
     if (activeTab === 'collection') return !!collection;
     if (activeTab === 'item') return !!collection && !!item;
     if (activeTab === 'local') return !!localPath;
     return false;
+  };
+
+  const handleReset = () => {
+    setLogs([]);
+    setIsProcessing(false);
   };
 
   const handleBreakdown = async () => {
@@ -37,7 +55,7 @@ const PaperBreakdown: React.FC = () => {
     setIsProcessing(true);
     setLogs(['Starting paper breakdown process...']);
 
-    const payload = { mode: activeTab, collection, item, local_path: localPath };
+    const payload = { mode: activeTab, collection, item, local_path: localPath, output_path: outputPath };
 
     try {
       const response = await fetch('/api/tasks/breakdown', {
@@ -76,6 +94,8 @@ const PaperBreakdown: React.FC = () => {
     }
   };
 
+  const hasStarted = logs.length > 0;
+
   return (
     <div>
       <h1 className="page-title">Paper Breakdown</h1>
@@ -85,66 +105,95 @@ const PaperBreakdown: React.FC = () => {
         <div className="glass-panel card">
           <h2 className="section-title">New Breakdown Task</h2>
           
-          {/* Tabs */}
-          <div className="tab-container">
-            <button className={`btn ${activeTab === 'collection' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('collection')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Folder size={16}/> Collection
-            </button>
-            <button className={`btn ${activeTab === 'item' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('item')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <File size={16}/> Single Zotero PDF
-            </button>
-            <button className={`btn ${activeTab === 'local' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('local')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Search size={16}/> Local PDF
-            </button>
-          </div>
-          
-          <div style={{ marginBottom: '1.5rem', minHeight: '120px' }}>
-            {activeTab === 'collection' && (
-              <>
-                <label className="form-label">Select Zotero Collection</label>
-                <CollectionSelector value={collection} onChange={setCollection} />
-                <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Extract structured fields from all PDFs in this collection.</p>
-              </>
-            )}
+          <div style={{ opacity: hasStarted ? 0.5 : 1, pointerEvents: hasStarted ? 'none' : 'auto' }}>
+            {/* Tabs */}
+            <div className="tab-container">
+              <button className={`btn ${activeTab === 'collection' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('collection')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Folder size={16}/> Collection
+              </button>
+              <button className={`btn ${activeTab === 'item' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('item')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <File size={16}/> Single Zotero PDF
+              </button>
+              <button className={`btn ${activeTab === 'local' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('local')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Search size={16}/> Local PDF
+              </button>
+            </div>
             
-            {activeTab === 'item' && (
-              <>
-                <label className="form-label">Select Zotero Collection</label>
-                <div style={{ marginBottom: '1rem' }}>
+            <div style={{ marginBottom: '1.5rem', minHeight: '120px' }}>
+              {activeTab === 'collection' && (
+                <>
+                  <label className="form-label">Select Zotero Collection</label>
                   <CollectionSelector value={collection} onChange={setCollection} />
-                </div>
-                <label className="form-label">Select PDF Paper</label>
-                <ZoteroItemSelector collection={collection} value={item} onChange={setItem} />
-              </>
-            )}
+                  <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Extract structured fields from all PDFs in this collection.</p>
+                </>
+              )}
+              
+              {activeTab === 'item' && (
+                <>
+                  <label className="form-label">Select Zotero Collection</label>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <CollectionSelector value={collection} onChange={setCollection} />
+                  </div>
+                  <label className="form-label">Select PDF Paper</label>
+                  <ZoteroItemSelector collection={collection} value={item} onChange={setItem} />
+                </>
+              )}
 
-            {activeTab === 'local' && (
-              <>
-                <label className="form-label">Select Local PDF File</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <input 
-                    type="text" 
-                    value={localPath} 
-                    onChange={(e) => setLocalPath(e.target.value)} 
-                    placeholder="Absolute path to .pdf" 
-                    className="input-field"
-                    style={{ flex: 1, background: 'rgba(0,0,0,0.05)' }}
-                  />
-                  <button className="btn" onClick={handleSelectLocalFile} style={{ background: 'var(--surface-color)' }}>Browse</button>
-                </div>
-              </>
-            )}
+              {activeTab === 'local' && (
+                <>
+                  <label className="form-label">Select Local PDF File</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input 
+                      type="text" 
+                      value={localPath} 
+                      onChange={(e) => setLocalPath(e.target.value)} 
+                      placeholder="Absolute path to .pdf" 
+                      className="input-field"
+                      style={{ flex: 1, background: 'rgba(0,0,0,0.05)' }}
+                    />
+                    <button className="btn" onClick={handleSelectLocalFile} style={{ background: 'var(--surface-color)' }}>Browse</button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label className="form-label">Output Directory (Optional)</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input 
+                  type="text" 
+                  value={outputPath} 
+                  onChange={(e) => setOutputPath(e.target.value)} 
+                  placeholder="Default: output/" 
+                  className="input-field"
+                  style={{ flex: 1, background: 'rgba(0,0,0,0.05)' }}
+                />
+                <button className="btn" onClick={handleSelectOutputFolder} style={{ background: 'var(--surface-color)' }}>Browse</button>
+              </div>
+            </div>
           </div>
 
-          <button 
-            className="btn btn-primary" 
-            onClick={handleBreakdown}
-            disabled={isProcessing || !isReady()}
-            style={{ width: '100%', gap: '0.5rem' }}
-          >
-            {isProcessing ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
-            {isProcessing ? 'Processing...' : 'Start Breakdown'}
-          </button>
+          {!hasStarted ? (
+            <button 
+              className="btn btn-primary" 
+              onClick={handleBreakdown}
+              disabled={isProcessing || !isReady()}
+              style={{ width: '100%', gap: '0.5rem' }}
+            >
+              {isProcessing ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+              {isProcessing ? 'Processing...' : 'Start Breakdown'}
+            </button>
+          ) : (
+            <button 
+              className="btn btn-primary" 
+              onClick={handleReset}
+              disabled={isProcessing}
+              style={{ width: '100%', gap: '0.5rem' }}
+            >
+              {isProcessing ? <Loader2 className="animate-spin" size={18} /> : null}
+              {isProcessing ? 'Processing...' : 'New Analysis'}
+            </button>
+          )}
         </div>
 
         {/* Real-time Logs */}
