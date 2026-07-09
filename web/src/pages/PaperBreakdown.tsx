@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Send, Loader2, Folder, File, Search } from 'lucide-react';
 import CollectionSelector from '../components/CollectionSelector';
 import ZoteroItemSelector from '../components/ZoteroItemSelector';
+import MarkdownViewer from '../components/MarkdownViewer';
 
 const PaperBreakdown: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'collection' | 'item' | 'local'>('collection');
@@ -9,9 +10,12 @@ const PaperBreakdown: React.FC = () => {
   const [item, setItem] = useState('');
   const [localPath, setLocalPath] = useState('');
   const [outputPath, setOutputPath] = useState('');
+  const [autoPdf, setAutoPdf] = useState(false);
   
   const [logs, setLogs] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [summaryPath, setSummaryPath] = useState<string | null>(null);
+  const [viewingFile, setViewingFile] = useState<string | null>(null);
 
   const handleSelectLocalFile = async () => {
     try {
@@ -47,15 +51,17 @@ const PaperBreakdown: React.FC = () => {
   const handleReset = () => {
     setLogs([]);
     setIsProcessing(false);
+    setSummaryPath(null);
   };
 
   const handleBreakdown = async () => {
     if (!isReady()) return;
     
     setIsProcessing(true);
+    setSummaryPath(null);
     setLogs(['Starting paper breakdown process...']);
 
-    const payload = { mode: activeTab, collection, item, local_path: localPath, output_path: outputPath };
+    const payload = { mode: activeTab, collection, item, local_path: localPath, output_path: outputPath, auto_pdf: autoPdf };
 
     try {
       const response = await fetch('/api/tasks/breakdown', {
@@ -80,7 +86,13 @@ const PaperBreakdown: React.FC = () => {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.substring(6));
-              setLogs(prev => [...prev, data.status]);
+              const logMsg = data.status;
+              setLogs(prev => [...prev, logMsg]);
+              
+              if (logMsg.includes('汇总 MD:')) {
+                const match = logMsg.match(/汇总 MD:\s+(.*)$/);
+                if (match) setSummaryPath(match[1]);
+              }
             } catch (e) {
               console.error('Error parsing SSE', e);
             }
@@ -171,6 +183,19 @@ const PaperBreakdown: React.FC = () => {
                 <button className="btn" onClick={handleSelectOutputFolder} style={{ background: 'var(--surface-color)' }}>Browse</button>
               </div>
             </div>
+
+            <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input 
+                type="checkbox" 
+                id="autoPdf" 
+                checked={autoPdf} 
+                onChange={(e) => setAutoPdf(e.target.checked)} 
+                style={{ width: '16px', height: '16px', accentColor: 'var(--accent-color)' }}
+              />
+              <label htmlFor="autoPdf" style={{ color: 'var(--text-primary)', cursor: 'pointer' }}>
+                Automatically generate PDF summary
+              </label>
+            </div>
           </div>
 
           {!hasStarted ? (
@@ -184,15 +209,26 @@ const PaperBreakdown: React.FC = () => {
               {isProcessing ? 'Processing...' : 'Start Breakdown'}
             </button>
           ) : (
-            <button 
-              className="btn btn-primary" 
-              onClick={handleReset}
-              disabled={isProcessing}
-              style={{ width: '100%', gap: '0.5rem' }}
-            >
-              {isProcessing ? <Loader2 className="animate-spin" size={18} /> : null}
-              {isProcessing ? 'Processing...' : 'New Analysis'}
-            </button>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleReset}
+                disabled={isProcessing}
+                style={{ flex: 1, gap: '0.5rem' }}
+              >
+                {isProcessing ? <Loader2 className="animate-spin" size={18} /> : null}
+                {isProcessing ? 'Processing...' : 'New Analysis'}
+              </button>
+              {(!isProcessing && summaryPath) && (
+                <button 
+                  className="btn" 
+                  onClick={() => setViewingFile(summaryPath)}
+                  style={{ flex: 1, background: 'var(--surface-color)' }}
+                >
+                  View Summary
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -215,6 +251,10 @@ const PaperBreakdown: React.FC = () => {
           </div>
         </div>
       </div>
+      
+      {viewingFile && (
+        <MarkdownViewer filePath={viewingFile} onClose={() => setViewingFile(null)} />
+      )}
     </div>
   );
 };

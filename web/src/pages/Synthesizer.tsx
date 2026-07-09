@@ -10,6 +10,7 @@ const Synthesizer: React.FC = () => {
   const [localPath, setLocalPath] = useState('');
   const [question, setQuestion] = useState('');
   const [outputPath, setOutputPath] = useState('');
+  const [autoPdf, setAutoPdf] = useState(false);
   
   const [logs, setLogs] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -62,7 +63,7 @@ const Synthesizer: React.FC = () => {
     setArticlePath(null);
     setLogs(['Starting literature synthesis...']);
 
-    const payload = { mode: activeTab, collection, local_path: localPath, question, output_path: outputPath };
+    const payload = { mode: activeTab, collection, local_path: localPath, question, output_path: outputPath, auto_pdf: autoPdf };
 
     try {
       const response = await fetch('/api/tasks/synthesize', {
@@ -184,6 +185,19 @@ const Synthesizer: React.FC = () => {
                 />
                 <button className="btn" onClick={handleSelectOutputFolder} style={{ background: 'var(--surface-color)' }}>Browse</button>
               </div>
+            </div>
+            
+            <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input 
+                type="checkbox" 
+                id="autoPdfSynth" 
+                checked={autoPdf} 
+                onChange={(e) => setAutoPdf(e.target.checked)} 
+                style={{ width: '16px', height: '16px', accentColor: 'var(--accent-color)' }}
+              />
+              <label htmlFor="autoPdfSynth" style={{ color: 'var(--text-primary)', cursor: 'pointer' }}>
+                Automatically export to PDF
+              </label>
             </div>
           </div>
 

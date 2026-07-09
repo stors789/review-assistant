@@ -108,6 +108,7 @@ def main():
     parser.add_argument("--base-url", default=get_base_url(), help="API Base URL (默认: https://api.deepseek.com)")
     parser.add_argument("--step7-model", default=get_step7_model(), help="Step 7 表格/示意图模型")
     parser.add_argument("--zotero-dir", default=get_zotero_dir(), help="Zotero 数据根目录（优先于环境变量）")
+    parser.add_argument("--auto-pdf", action="store_true", help="自动将生成的 Markdown 转换为 PDF")
     args = parser.parse_args()
 
     api_key = args.api_key or get_api_key()
@@ -367,6 +368,16 @@ def main():
     article_path = output_dir / "article.md"
     article_path.write_text(article, encoding="utf-8")
     print(f"  📄 文章已保存: {article_path}", flush=True)
+
+    if args.auto_pdf:
+        from .pdf_utils import md_to_pdf
+        print(f"  🔄 正在自动导出 PDF...", flush=True)
+        report_pdf_path = output_dir / "report.pdf"
+        article_pdf_path = output_dir / "article.pdf"
+        md_to_pdf(report, str(report_pdf_path))
+        md_to_pdf(article, str(article_pdf_path))
+        print(f"  📄 报告 PDF 已保存: {report_pdf_path}", flush=True)
+        print(f"  📄 文章 PDF 已保存: {article_pdf_path}", flush=True)
 
     # ── Step 7: 总结图表 ──
     summary = step7_summary(client_factory, report, step7_model=args.step7_model)

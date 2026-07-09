@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useTheme } from './ThemeContext';
 import { Sun, Moon, Library, CheckCircle, FileText, Share2, Sparkles, Settings as SettingsIcon } from 'lucide-react';
 import ZoteroExplorer from './pages/ZoteroExplorer';

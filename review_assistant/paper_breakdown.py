@@ -64,7 +64,7 @@ def breakdown_paper(client, text: str, model: str) -> dict:
     return llm_client.call_json(client, SYSTEM_PROMPT, text, model, max_tokens=4096)
 
 
-def process_pdfs(pdf_paths: list[Path], output_dir: Path, model: str, api_key: str, base_url: str, workers: int = 1):
+def process_pdfs(pdf_paths: list[Path], output_dir: Path, model: str, api_key: str, base_url: str, workers: int = 1, auto_pdf: bool = False):
     """批量处理 PDF 文件列表（支持并发）。"""
     if not pdf_paths:
         print("未找到可处理的 PDF 文件")
@@ -137,9 +137,30 @@ def process_pdfs(pdf_paths: list[Path], output_dir: Path, model: str, api_key: s
                 row.setdefault(k, "")
             writer.writerow(row)
 
+    # 自动生成 Markdown 汇总
+    md_path = output_dir / "_summary.md"
+    md_lines = ["# 论文拆解汇总\n\n"]
+    headers = ["file"] + list(FIELDS.keys())
+    md_lines.append("| " + " | ".join(headers) + " |")
+    md_lines.append("|" + "|".join(["---"] * len(headers)) + "|")
+    
+    for r in all_results:
+        row = [str(r.get(k, "")).replace("\n", "<br>").replace("|", "\|") for k in headers]
+        md_lines.append("| " + " | ".join(row) + " |")
+        
+    md_path.write_text("\n".join(md_lines), encoding="utf-8")
+    
     print(f"\n全部完成！{total} 篇论文 -> {output_dir}")
     print(f"  JSON: {output_dir}/*.json")
-    print(f"  汇总: {csv_path}")
+    print(f"  汇总 CSV: {csv_path}")
+    print(f"  汇总 MD: {md_path}")
+    
+    if auto_pdf:
+        from .pdf_utils import md_to_pdf
+        print(f"  🔄 正在自动导出 PDF...", flush=True)
+        pdf_path = output_dir / "_summary.pdf"
+        md_to_pdf("\n".join(md_lines), str(pdf_path))
+        print(f"  📄 汇总 PDF 已保存: {pdf_path}")
 
 
 def main():
@@ -154,6 +175,7 @@ def main():
     parser.add_argument("--base-url", default=get_base_url(), help="API Base URL")
     parser.add_argument("--zotero-dir", default=get_zotero_dir(), help="Zotero 数据根目录（优先于环境变量）")
     parser.add_argument("--workers", "-w", type=int, default=get_workers(3), help="并发数（默认 3）")
+    parser.add_argument("--auto-pdf", action="store_true", help="自动将生成的 Markdown 转换为 PDF")
     args = parser.parse_args()
 
     if args.list_collections:
@@ -209,8 +231,7 @@ def main():
     if not pdf_paths:
         sys.exit("请用 --input 或 --zotero-collection 指定 PDF 来源")
 
-    process_pdfs(pdf_paths, output_dir, args.model, api_key, base_url, args.workers)
-
+    process_pdfs(pdf_paths, output_dir, args.model, api_key, base_url, args.workers, args.auto_pdf)
 
 if __name__ == "__main__":
     main()

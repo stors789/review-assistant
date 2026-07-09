@@ -64,6 +64,7 @@ class BreakdownRequest(BaseModel):
     item: Optional[str] = None
     local_path: Optional[str] = None
     output_path: Optional[str] = None
+    auto_pdf: bool = False
 
 @router.post("/breakdown")
 async def paper_breakdown(req: BreakdownRequest):
@@ -83,6 +84,9 @@ async def paper_breakdown(req: BreakdownRequest):
     if req.output_path:
         cmd.extend(["--output", req.output_path])
         
+    if req.auto_pdf:
+        cmd.append("--auto-pdf")
+        
     return StreamingResponse(run_subprocess_and_stream(cmd), media_type="text/event-stream")
 
 class SynthesizeRequest(BaseModel):
@@ -91,6 +95,7 @@ class SynthesizeRequest(BaseModel):
     local_path: Optional[str] = None
     question: str
     output_path: Optional[str] = None
+    auto_pdf: bool = False
 
 @router.post("/synthesize")
 async def paper_synthesize(req: SynthesizeRequest):
@@ -109,5 +114,8 @@ async def paper_synthesize(req: SynthesizeRequest):
         
     if req.output_path:
         cmd.extend(["--output", req.output_path])
+        
+    if req.auto_pdf:
+        cmd.append("--auto-pdf")
         
     return StreamingResponse(run_subprocess_and_stream(cmd), media_type="text/event-stream")
