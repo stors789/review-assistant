@@ -24,6 +24,9 @@ pyinstaller --noconfirm \
     --hidden-import "uvicorn.lifespan.on" \
     --hidden-import "websockets" \
     --hidden-import "pydantic" \
+    --hidden-import "review_assistant.paper_breakdown" \
+    --hidden-import "review_assistant.claim_verify" \
+    --hidden-import "review_assistant.explore_synthesize" \
     app.py
 
 echo "Build complete! Check the dist/ folder for 'Review Assistant.app'"
