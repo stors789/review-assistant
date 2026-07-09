@@ -3,8 +3,47 @@ from pydantic import BaseModel
 from fastapi.responses import StreamingResponse
 import asyncio
 from typing import Optional
+import os
+import sys
+import json
+from .settings import parse_env_file
 
 router = APIRouter()
+
+def get_process_env():
+    env = os.environ.copy()
+    settings = parse_env_file()
+    env.update(settings)
+    env["PYTHONUNBUFFERED"] = "1"
+    return env
+
+async def run_subprocess_and_stream(cmd: list[str], cwd: str = "/Users/eros/Documents/review-assistant"):
+    env = get_process_env()
+    
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        cwd=cwd,
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT
+    )
+
+    try:
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                break
+            text = line.decode(errors="replace").rstrip('\r\n')
+            yield f"data: {json.dumps({'status': text})}\n\n"
+            
+        await process.wait()
+        if process.returncode != 0:
+            yield f"data: {json.dumps({'status': f'[Error] Process exited with code {process.returncode}'})}\n\n"
+        yield "data: {\"status\": \"[System] Task completed.\"}\n\n"
+    except asyncio.CancelledError:
+        process.terminate()
+        await process.wait()
+        raise
 
 class VerifyRequest(BaseModel):
     collection: str
@@ -14,12 +53,10 @@ class VerifyRequest(BaseModel):
 
 @router.post("/verify")
 async def verify_claim(req: VerifyRequest):
-    async def event_generator():
-        yield "data: {\"status\": \"starting\"}\n\n"
-        await asyncio.sleep(1)
-        yield "data: {\"status\": \"finished\"}\n\n"
-        
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    cmd = [sys.executable, "-m", "review_assistant.claim_verify", req.collection, "--paragraph", req.paragraph, "--top", str(req.top)]
+    if req.model:
+        cmd.extend(["--model", req.model])
+    return StreamingResponse(run_subprocess_and_stream(cmd), media_type="text/event-stream")
 
 class BreakdownRequest(BaseModel):
     mode: str
@@ -29,12 +66,20 @@ class BreakdownRequest(BaseModel):
 
 @router.post("/breakdown")
 async def paper_breakdown(req: BreakdownRequest):
-    async def event_generator():
-        yield f"data: {{\"status\": \"starting breakdown in {req.mode} mode...\"}}\n\n"
-        await asyncio.sleep(1)
-        yield "data: {\"status\": \"finished breakdown\"}\n\n"
+    cmd = [sys.executable, "-m", "review_assistant.paper_breakdown"]
+    
+    if req.mode == "collection":
+        if not req.collection:
+            async def err(): yield "data: {\"status\": \"[Error] Missing collection name\"}\n\n"
+            return StreamingResponse(err(), media_type="text/event-stream")
+        cmd.extend(["--zotero-collection", req.collection])
+    elif req.mode == "local":
+        if not req.local_path:
+            async def err(): yield "data: {\"status\": \"[Error] Missing local path\"}\n\n"
+            return StreamingResponse(err(), media_type="text/event-stream")
+        cmd.extend(["--input", req.local_path])
         
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(run_subprocess_and_stream(cmd), media_type="text/event-stream")
 
 class SynthesizeRequest(BaseModel):
     mode: str
@@ -44,9 +89,17 @@ class SynthesizeRequest(BaseModel):
 
 @router.post("/synthesize")
 async def paper_synthesize(req: SynthesizeRequest):
-    async def event_generator():
-        yield f"data: {{\"status\": \"starting synthesis in {req.mode} mode...\"}}\n\n"
-        await asyncio.sleep(1)
-        yield "data: {\"status\": \"finished synthesis\"}\n\n"
+    cmd = [sys.executable, "-m", "review_assistant.explore_synthesize", "--question", req.question]
+    
+    if req.mode == "collection":
+        if not req.collection:
+            async def err(): yield "data: {\"status\": \"[Error] Missing collection name\"}\n\n"
+            return StreamingResponse(err(), media_type="text/event-stream")
+        cmd.append(req.collection)
+    elif req.mode == "local":
+        if not req.local_path:
+            async def err(): yield "data: {\"status\": \"[Error] Missing local path\"}\n\n"
+            return StreamingResponse(err(), media_type="text/event-stream")
+        cmd.extend(["--input", req.local_path])
         
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(run_subprocess_and_stream(cmd), media_type="text/event-stream")
