@@ -23,14 +23,14 @@ It helps you move from a folder of papers to structured notes, claim verificatio
 List all collections and PDF coverage:
 
 ```bash
-python scripts/zotero_read.py --list
+python -m review_assistant.zotero_read --list
 ```
 
 Inspect one collection:
 
 ```bash
-python scripts/zotero_read.py "Collection > Subcollection"
-python scripts/zotero_read.py --pdf-only "Collection > Subcollection"
+python -m review_assistant.zotero_read "Collection > Subcollection"
+python -m review_assistant.zotero_read --pdf-only "Collection > Subcollection"
 ```
 
 ### 2. Break Down Papers（能力A）
@@ -38,13 +38,13 @@ python scripts/zotero_read.py --pdf-only "Collection > Subcollection"
 Create structured JSON notes and a CSV summary from PDFs in a Zotero collection:
 
 ```bash
-python scripts/paper_breakdown.py -z "Collection > Subcollection" -o ./output -w 5
+python -m review_assistant.paper_breakdown -z "Collection > Subcollection" -o ./output -w 5
 ```
 
 Or process a folder of PDFs directly:
 
 ```bash
-python scripts/paper_breakdown.py -i /path/to/pdfs -o ./output
+python -m review_assistant.paper_breakdown -i /path/to/pdfs -o ./output
 ```
 
 **Parameters:**
@@ -65,13 +65,13 @@ Already-processed papers are automatically skipped; safe to re-run. Output: `*.j
 Check whether a paragraph's claims are supported by papers in a Zotero collection:
 
 ```bash
-python scripts/claim_verify.py "Collection > Subcollection" -p "Your review paragraph..." -o report.json
+python -m review_assistant.claim_verify "Collection > Subcollection" -p "Your review paragraph..." -o report.json
 ```
 
 Or from a file:
 
 ```bash
-python scripts/claim_verify.py "Collection > Subcollection" -f paragraph.md -o report.json
+python -m review_assistant.claim_verify "Collection > Subcollection" -f paragraph.md -o report.json
 ```
 
 **Parameters:**
@@ -92,13 +92,13 @@ The report decomposes the paragraph into independent claims, matches each claim 
 Run the full review pipeline — extract findings, build outline, write report, verify, generate article + table + diagram:
 
 ```bash
-python scripts/explore_synthesize.py "Collection > Subcollection" -q "Your research question" -o ./output
+python -m review_assistant.explore_synthesize "Collection > Subcollection" -q "Your research question" -o ./output
 ```
 
 With vector-search hybrid RAG:
 
 ```bash
-python scripts/explore_synthesize.py "Collection > Subcollection" -q "Your research question" --vector-search -o ./output
+python -m review_assistant.explore_synthesize "Collection > Subcollection" -q "Your research question" --vector-search -o ./output
 ```
 
 **Parameters:**
@@ -123,13 +123,13 @@ Search Semantic Scholar and import results into Zotero:
 
 ```bash
 # Basic search with default screening:
-python scripts/auto_lit.py "short English query" -c "Target Collection" -t "topic-tag" -n 10
+python -m review_assistant.auto_lit "short English query" -c "Target Collection" -t "topic-tag" -n 10
 
 # With custom screening rules:
-python scripts/auto_lit.py "short English query" --screen --screen-rules ./rules.json -c "Target" -t "tag"
+python -m review_assistant.auto_lit "short English query" --screen --screen-rules ./rules.json -c "Target" -t "tag"
 
 # Web API direct import:
-python scripts/auto_lit.py "short English query" --web-import -c "Parent > Child" -t "tag"
+python -m review_assistant.auto_lit "short English query" --web-import -c "Parent > Child" -t "tag"
 ```
 
 **Parameters:**
@@ -322,7 +322,7 @@ python -m unittest discover -s tests -v
 | Symptom | Cause | Fix |
 |---|---|---|
 | `No module named ...` / `No module named 'pymupdf'` | Missing Python dependencies | `pip install -r requirements.txt` |
-| No PDFs found / `论文集没有可用的 PDF` | Collection empty or lacks PDF attachments | Run `python scripts/zotero_read.py --list` to check coverage |
+| No PDFs found / `论文集没有可用的 PDF` | Collection empty or lacks PDF attachments | Run `python -m review_assistant.zotero_read --list` to check coverage |
 | API key missing | Key not exported in environment | Confirm `DEEPSEEK_API_KEY`, `SS_API_KEY` are set |
 | `database is locked` | Zotero is writing to SQLite | Wait for Zotero to finish, then retry (reads unaffected) |
 | Cannot extract PDF text (0 chars) | Scanned or encrypted PDF | OCR the PDF first, or unlock it |

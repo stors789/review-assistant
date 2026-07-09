@@ -19,10 +19,10 @@ export DEEPSEEK_API_KEY="sk-..."
 export SS_API_KEY="..."
 
 # 3. 看看 Zotero 里有什么
-python scripts/zotero_read.py --list
+python -m review_assistant.zotero_read --list
 
 # 4. 跑第一个综述
-python scripts/explore_synthesize.py "你的Zotero集名" -q "你的研究问题" -o ./my_review
+python -m review_assistant.explore_synthesize "你的Zotero集名" -q "你的研究问题" -o ./my_review
 ```
 
 跑完打开 `my_review/article.md`，就是一篇完整综述。完整参数和环境变量见 [README](./README.md)。
@@ -87,7 +87,7 @@ Zotero 论文集的 PDF
 **第一步：搜文献补集**
 
 ```bash
-python scripts/auto_lit.py "hybrid search reranking retrieval augmented generation" \
+python -m review_assistant.auto_lit "hybrid search reranking retrieval augmented generation" \
     --web-import -c "信息检索 > RAG" -t rag-review -n 20
 ```
 
@@ -96,7 +96,7 @@ python scripts/auto_lit.py "hybrid search reranking retrieval augmented generati
 **第二步：看看集里有什么**
 
 ```bash
-python scripts/zotero_read.py "信息检索 > RAG"
+python -m review_assistant.zotero_read "信息检索 > RAG"
 ```
 
 确认 PDF 覆盖情况。缺 PDF 的先把 PDF 拖进 Zotero。
@@ -104,7 +104,7 @@ python scripts/zotero_read.py "信息检索 > RAG"
 **第三步：跑综述流水线**
 
 ```bash
-python scripts/explore_synthesize.py "信息检索 > RAG" \
+python -m review_assistant.explore_synthesize "信息检索 > RAG" \
     -q "混合检索与重排技术如何提升检索增强生成（RAG）系统的回答准确性与忠实度" \
     -o ./rag_review
 ```
@@ -127,14 +127,14 @@ ls rag_review/
 打开 `table.md`，找标了 `~无数据` 的单元格。这些是你的论文集没覆盖到的点。比如表格里 "查询扩展" 那一行全是 `~无数据`，就搜：
 
 ```bash
-python scripts/auto_lit.py "query expansion retrieval augmented generation" \
+python -m review_assistant.auto_lit "query expansion retrieval augmented generation" \
     --web-import -c "信息检索 > RAG" -t rag-review -n 10
 ```
 
 把新文献拖进 Zotero 的 RAG 集，然后重跑流水线（缓存会自动跳过已处理的论文）：
 
 ```bash
-python scripts/explore_synthesize.py "信息检索 > RAG" \
+python -m review_assistant.explore_synthesize "信息检索 > RAG" \
     -q "混合检索与重排技术如何提升检索增强生成（RAG）系统的回答准确性与忠实度" \
     -o ./rag_review_v2
 ```
@@ -148,7 +148,7 @@ python scripts/explore_synthesize.py "信息检索 > RAG" \
 **第一步：确保目标集有相关论文的 PDF**
 
 ```bash
-python scripts/zotero_read.py "信息检索 > RAG"
+python -m review_assistant.zotero_read "信息检索 > RAG"
 ```
 
 如果论文不够，先用能力E搜一波补进去。
@@ -167,7 +167,7 @@ EOF
 **第三步：验证**
 
 ```bash
-python scripts/claim_verify.py "信息检索 > RAG" -f my_paragraph.md -o check_report.json
+python -m review_assistant.claim_verify "信息检索 > RAG" -f my_paragraph.md -o check_report.json
 ```
 
 输出会告诉你每句话的支持度：完全支持 / 部分支持 / 弱支持 / 不支持 / 矛盾。不支持或矛盾的主张需要特别关注——可能你的理解有误，也可能是论文集缺文献。
@@ -180,7 +180,7 @@ python scripts/claim_verify.py "信息检索 > RAG" -f my_paragraph.md -o check_
 
 ```bash
 # 单篇或几篇 PDF 放一个文件夹
-python scripts/paper_breakdown.py -i ~/Downloads/paper_folder -o ./notes
+python -m review_assistant.paper_breakdown -i ~/Downloads/paper_folder -o ./notes
 ```
 
 输出每篇一个 JSON，包含背景、目的、方法、结果、结论、创新点、不足：
@@ -192,7 +192,7 @@ cat notes/_summary.csv
 也可以对整个 Zotero 集拆解：
 
 ```bash
-python scripts/paper_breakdown.py -z "信息检索 > RAG" -o ./rag_notes -w 5
+python -m review_assistant.paper_breakdown -z "信息检索 > RAG" -o ./rag_notes -w 5
 ```
 
 ---

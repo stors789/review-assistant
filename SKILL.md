@@ -11,11 +11,11 @@ description: 综述助手。用途：①Zotero数据库查询与统计；②从Z
 
 | 脚本 | 用途 | 调用方式 |
 |---|---|---|
-| `python scripts/auto_lit.py` | 自然语言→Semantic Scholar/PubMed 搜索→Zotero Web API 入库或 RIS fallback | CLI |
-| `python scripts/paper_breakdown.py` | 批量拆解 PDF 论文到结构化字段 | CLI |
-| `python scripts/claim_verify.py` | 段落→主张分解→Zotero 原文验证 | CLI |
-| `python scripts/explore_synthesize.py` | 研究问题→探索总结→报告+文章+表格+示意图 | CLI |
-| `python scripts/zotero_read.py --list` | 浏览 Zotero 论文集层级 | CLI |
+| `python -m review_assistant.auto_lit` | 自然语言→Semantic Scholar/PubMed 搜索→Zotero Web API 入库或 RIS fallback | CLI |
+| `python -m review_assistant.paper_breakdown` | 批量拆解 PDF 论文到结构化字段 | CLI |
+| `python -m review_assistant.claim_verify` | 段落→主张分解→Zotero 原文验证 | CLI |
+| `python -m review_assistant.explore_synthesize` | 研究问题→探索总结→报告+文章+表格+示意图 | CLI |
+| `python -m review_assistant.zotero_read --list` | 浏览 Zotero 论文集层级 | CLI |
 | `python -c "import sys; sys.path.insert(0,'scripts'); from zotero_reader import ZoteroReader; ..."` | Zotero 数据库程序化查询 | Python |
 
 ## 前置检查
@@ -37,10 +37,10 @@ description: 综述助手。用途：①Zotero数据库查询与统计；②从Z
 
 | 用户意图 | 动作 |
 |---|---|
-| "Zotero里有多少论文集/PDF" | `python scripts/zotero_read.py --list` |
-| "XX集有多少PDF" | `python scripts/zotero_read.py "父集 > 子集"` 看摘要行 |
-| "哪些文献缺PDF" | `python scripts/zotero_read.py "父集 > 子集"` 看 [缺] 标记 |
-| "统计各集PDF覆盖情况" | `python scripts/zotero_read.py --list` |
+| "Zotero里有多少论文集/PDF" | `python -m review_assistant.zotero_read --list` |
+| "XX集有多少PDF" | `python -m review_assistant.zotero_read "父集 > 子集"` 看摘要行 |
+| "哪些文献缺PDF" | `python -m review_assistant.zotero_read "父集 > 子集"` 看 [缺] 标记 |
+| "统计各集PDF覆盖情况" | `python -m review_assistant.zotero_read --list` |
 | "调查/看看Zotero里XX情况" | 先用 `--list` 概览，不够再用 `ZoteroReader` 写 Python 查询 |
 
 程序化查询时注意：`list_collections()` 自动跳过 `path` 为空或被标记删除的附件记录，只统计实际存在的本地 PDF。
@@ -49,8 +49,8 @@ description: 综述助手。用途：①Zotero数据库查询与统计；②从Z
 
 | 用户意图 | 动作 | 参数详见 |
 |---|---|---|
-| "拆解 XX 这个集" | `python scripts/paper_breakdown.py -z "父集 > 子集" -o ./output -w 5` | [README §2](./README.md#2-break-down-papers能力a) |
-| "这篇PDF拆解一下" | `python scripts/paper_breakdown.py -i /path/to/folder -o ./out` | 同上 |
+| "拆解 XX 这个集" | `python -m review_assistant.paper_breakdown -z "父集 > 子集" -o ./output -w 5` | [README §2](./README.md#2-break-down-papers能力a) |
+| "这篇PDF拆解一下" | `python -m review_assistant.paper_breakdown -i /path/to/folder -o ./out` | 同上 |
 | "帮我写这篇论文的阅读笔记/摘要" | 同上，然后读取 JSON | 同上 |
 | "整理一下 XX 论文集的核心发现" | 拆解后读取 `_summary.csv` | 同上 |
 
@@ -58,15 +58,15 @@ description: 综述助手。用途：①Zotero数据库查询与统计；②从Z
 
 | 用户意图 | 动作 | 参数详见 |
 |---|---|---|
-| "帮我验证这段文字" | `python scripts/claim_verify.py "<选集>" -p "文字..."` 或 `-f file.md` | [README §3](./README.md#3-verify-claims能力b) |
-| "这段综述里有文献支撑吗" | `python scripts/claim_verify.py "<选集>" -p "..." -o report.json` | 同上 |
-| "核对一下引用是否准确" | `python scripts/claim_verify.py "<选集>" -f paragraph.md` | 同上 |
+| "帮我验证这段文字" | `python -m review_assistant.claim_verify "<选集>" -p "文字..."` 或 `-f file.md` | [README §3](./README.md#3-verify-claims能力b) |
+| "这段综述里有文献支撑吗" | `python -m review_assistant.claim_verify "<选集>" -p "..." -o report.json` | 同上 |
+| "核对一下引用是否准确" | `python -m review_assistant.claim_verify "<选集>" -f paragraph.md` | 同上 |
 
 ### 能力D：探索总结
 
 | 用户意图 | 动作 | 参数详见 |
 |---|---|---|
-| "研究一下 XX 集里关于 YY 的文献" | `python scripts/explore_synthesize.py "<选集>" -q "YY"` | [README §4](./README.md#4-explore-and-synthesize能力d) |
+| "研究一下 XX 集里关于 YY 的文献" | `python -m review_assistant.explore_synthesize "<选集>" -q "YY"` | [README §4](./README.md#4-explore-and-synthesize能力d) |
 | "写一篇关于 XX 的综述" | 同上，自动生成 report.md + article.md + table.md + diagram.md | 同上 |
 | "续写/修正上次的报告" | 用 `--skip-step1` 跳过提取阶段 | 同上 |
 
