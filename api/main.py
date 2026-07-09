@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from .routers import zotero, tasks, system, settings
+from .routers import zotero, tasks, system, settings, files
 import os
 
 app = FastAPI(
@@ -23,6 +23,7 @@ app.include_router(zotero.router, prefix="/api/zotero", tags=["Zotero"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
 app.include_router(system.router, prefix="/api/system", tags=["System"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(files.router, prefix="/api/files", tags=["Files"])
 
 @app.get("/api/health")
 def health_check():
