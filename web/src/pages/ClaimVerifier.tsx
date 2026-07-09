@@ -75,6 +75,7 @@ const ClaimVerifier: React.FC = () => {
               style={{
                 width: '100%',
                 padding: '0.75rem',
+                fontSize: '1rem',
                 borderRadius: '8px',
                 border: '1px solid var(--surface-border)',
                 background: 'rgba(0,0,0,0.05)',

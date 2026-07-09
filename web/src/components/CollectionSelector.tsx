@@ -26,6 +26,7 @@ const CollectionSelector: React.FC<CollectionSelectorProps> = ({ value, onChange
         style={{
           flex: 1,
           padding: '0.75rem',
+          fontSize: '1rem',
           borderRadius: '8px',
           border: '1px solid var(--surface-border)',
           background: 'rgba(128,128,128,0.1)',
