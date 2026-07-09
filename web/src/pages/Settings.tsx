@@ -144,7 +144,7 @@ const Settings: React.FC = () => {
       {/* Global Configuration */}
       <div className="glass-panel card" style={{ marginBottom: '1.5rem' }}>
         <h2 className="section-title">
-          <FolderOpen size={20} color="var(--accent-color)" /> Configuration File
+          <FolderOpen size={20} color="var(--accent-color)" /> Configuration Location
         </h2>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <input 
@@ -152,11 +152,11 @@ const Settings: React.FC = () => {
             value={envPath} 
             readOnly
             className="input-field"
-            placeholder="No environment file selected"
+            placeholder="No environment folder selected"
             style={{ flex: 1, background: 'rgba(0,0,0,0.05)' }}
           />
           <button className="btn btn-primary" onClick={handleSelectEnv} style={{ padding: '0.75rem 1.5rem' }}>
-            Choose File
+            Choose Folder
           </button>
         </div>
       </div>
