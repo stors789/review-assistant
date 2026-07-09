@@ -85,7 +85,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="探索总结工作流：给定研究问题和Zotero论文集，生成报告+文章"
     )
-    parser.add_argument("collection", nargs="+", help="Zotero 论文集路径（如 '主题 > 子集'，可多个）")
+    parser.add_argument("collection", nargs="*", help="Zotero 论文集路径（如 '主题 > 子集'，可多个）")
+    parser.add_argument("--input", "-i", help="PDF 文件夹路径（与 collection 二选一）")
     parser.add_argument("--question", "-q", required=True, help="研究问题")
     parser.add_argument("--output", "-o", default="synthesize_output", help="输出目录")
     parser.add_argument("--model", "-m", default=get_model(DEFAULT_PRO_MODEL), help="模型名")
@@ -125,19 +126,38 @@ def main():
     client = client_factory()
 
     # ── 获取论文集 ──
-    seen_titles = set()
     all_papers = []
-    for col in args.collection:
-        print(f"📚 Zotero「{col}」", flush=True)
-        with ZoteroReader(zotero_dir=args.zotero_dir) as reader:
-            papers = reader.get_papers(col)
-        n_new = 0
-        for p in papers:
-            if p["title"] not in seen_titles:
-                seen_titles.add(p["title"])
-                all_papers.append(p)
-                n_new += 1
-        print(f"   {len(papers)} 篇 PDF, {n_new} 篇新收录", flush=True)
+    
+    if args.input:
+        input_dir = Path(args.input).resolve()
+        if not input_dir.is_dir():
+            sys.exit(f"指定的输入文件夹不存在: {input_dir}")
+        print(f"📁 本地文件夹「{input_dir.name}」", flush=True)
+        pdf_paths = sorted(input_dir.glob("*.pdf"))
+        for pdf in pdf_paths:
+            all_papers.append({
+                "title": pdf.stem,
+                "authors": "Unknown",
+                "date": "Unknown",
+                "pdf_path": str(pdf),
+                "pdf_available": True
+            })
+        print(f"   {len(pdf_paths)} 篇本地 PDF", flush=True)
+    elif args.collection:
+        seen_titles = set()
+        for col in args.collection:
+            print(f"📚 Zotero「{col}」", flush=True)
+            with ZoteroReader(zotero_dir=args.zotero_dir) as reader:
+                papers = reader.get_papers(col)
+            n_new = 0
+            for p in papers:
+                if p["title"] not in seen_titles:
+                    seen_titles.add(p["title"])
+                    all_papers.append(p)
+                    n_new += 1
+            print(f"   {len(papers)} 篇 PDF, {n_new} 篇新收录", flush=True)
+    else:
+        sys.exit("请指定 Zotero collection 或使用 --input 指定本地文件夹")
 
     papers = all_papers
     if not papers:

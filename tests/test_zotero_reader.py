@@ -193,7 +193,7 @@ class ZoteroReaderTests(unittest.TestCase):
 
             # 5. Windows Style Absolute Path (mocked environment)
             from unittest.mock import patch, MagicMock
-            with patch('zotero_reader.Path') as mock_path_cls:
+            with patch('review_assistant.zotero_reader.Path') as mock_path_cls:
                 mock_path_instance = MagicMock()
                 mock_path_instance.is_absolute.return_value = True
                 mock_path_instance.exists.return_value = True

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import zotero, tasks
+from .routers import zotero, tasks, system
 
 app = FastAPI(
     title="Review Assistant API",
@@ -18,6 +18,7 @@ app.add_middleware(
 
 app.include_router(zotero.router, prefix="/api/zotero", tags=["Zotero"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
+app.include_router(system.router, prefix="/api/system", tags=["System"])
 
 @app.get("/api/health")
 def health_check():

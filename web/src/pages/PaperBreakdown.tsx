@@ -1,23 +1,49 @@
 import React, { useState } from 'react';
-import { Send, Loader2 } from 'lucide-react';
+import { Send, Loader2, Folder, File, Search } from 'lucide-react';
 import CollectionSelector from '../components/CollectionSelector';
+import ZoteroItemSelector from '../components/ZoteroItemSelector';
 
 const PaperBreakdown: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'collection' | 'item' | 'local'>('collection');
   const [collection, setCollection] = useState('');
+  const [item, setItem] = useState('');
+  const [localPath, setLocalPath] = useState('');
+  
   const [logs, setLogs] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const handleSelectLocalFile = async () => {
+    try {
+      const res = await fetch('/api/system/select-file');
+      const data = await res.json();
+      if (data.path) {
+        setLocalPath(data.path);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const isReady = () => {
+    if (activeTab === 'collection') return !!collection;
+    if (activeTab === 'item') return !!collection && !!item;
+    if (activeTab === 'local') return !!localPath;
+    return false;
+  };
+
   const handleBreakdown = async () => {
-    if (!collection) return;
+    if (!isReady()) return;
     
     setIsProcessing(true);
     setLogs(['Starting paper breakdown process...']);
+
+    const payload = { mode: activeTab, collection, item, local_path: localPath };
 
     try {
       const response = await fetch('/api/tasks/breakdown', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ collection })
+        body: JSON.stringify(payload)
       });
 
       if (!response.body) throw new Error('No readable stream available');
@@ -59,18 +85,60 @@ const PaperBreakdown: React.FC = () => {
         <div className="glass-panel card">
           <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600 }}>New Breakdown Task</h2>
           
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Zotero Collection</label>
-            <CollectionSelector value={collection} onChange={setCollection} />
-            <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Select a collection to extract structured fields (background, methods, conclusions, etc.) from all PDF papers within it.
-            </p>
+          {/* Tabs */}
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--surface-border)', paddingBottom: '0.5rem' }}>
+            <button className={`btn ${activeTab === 'collection' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('collection')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Folder size={16}/> Collection
+            </button>
+            <button className={`btn ${activeTab === 'item' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('item')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <File size={16}/> Single Zotero PDF
+            </button>
+            <button className={`btn ${activeTab === 'local' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('local')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Search size={16}/> Local PDF
+            </button>
+          </div>
+          
+          <div style={{ marginBottom: '1.5rem', minHeight: '120px' }}>
+            {activeTab === 'collection' && (
+              <>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select Zotero Collection</label>
+                <CollectionSelector value={collection} onChange={setCollection} />
+                <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Extract structured fields from all PDFs in this collection.</p>
+              </>
+            )}
+            
+            {activeTab === 'item' && (
+              <>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select Zotero Collection</label>
+                <div style={{ marginBottom: '1rem' }}>
+                  <CollectionSelector value={collection} onChange={setCollection} />
+                </div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select PDF Paper</label>
+                <ZoteroItemSelector collection={collection} value={item} onChange={setItem} />
+              </>
+            )}
+
+            {activeTab === 'local' && (
+              <>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select Local PDF File</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input 
+                    type="text" 
+                    value={localPath} 
+                    onChange={(e) => setLocalPath(e.target.value)} 
+                    placeholder="Absolute path to .pdf" 
+                    style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--text-primary)' }}
+                  />
+                  <button className="btn" onClick={handleSelectLocalFile} style={{ background: 'var(--surface-color)' }}>Browse</button>
+                </div>
+              </>
+            )}
           </div>
 
           <button 
             className="btn btn-primary" 
             onClick={handleBreakdown}
-            disabled={isProcessing || !collection}
+            disabled={isProcessing || !isReady()}
             style={{ width: '100%', gap: '0.5rem' }}
           >
             {isProcessing ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}

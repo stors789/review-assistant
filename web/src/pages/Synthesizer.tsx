@@ -1,24 +1,47 @@
 import React, { useState } from 'react';
-import { Send, Loader2 } from 'lucide-react';
+import { Send, Loader2, Folder, Search } from 'lucide-react';
 import CollectionSelector from '../components/CollectionSelector';
 
 const Synthesizer: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'collection' | 'local'>('collection');
   const [collection, setCollection] = useState('');
+  const [localPath, setLocalPath] = useState('');
   const [question, setQuestion] = useState('');
+  
   const [logs, setLogs] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const handleSelectLocalFolder = async () => {
+    try {
+      const res = await fetch('/api/system/select-folder');
+      const data = await res.json();
+      if (data.path) {
+        setLocalPath(data.path);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const isReady = () => {
+    if (activeTab === 'collection') return !!collection && !!question;
+    if (activeTab === 'local') return !!localPath && !!question;
+    return false;
+  };
+
   const handleSynthesize = async () => {
-    if (!collection || !question) return;
+    if (!isReady()) return;
     
     setIsProcessing(true);
     setLogs(['Starting literature synthesis...']);
+
+    const payload = { mode: activeTab, collection, local_path: localPath, question };
 
     try {
       const response = await fetch('/api/tasks/synthesize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ collection, question })
+        body: JSON.stringify(payload)
       });
 
       if (!response.body) throw new Error('No readable stream available');
@@ -60,9 +83,39 @@ const Synthesizer: React.FC = () => {
         <div className="glass-panel card">
           <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600 }}>New Synthesis Task</h2>
           
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Zotero Collection</label>
-            <CollectionSelector value={collection} onChange={setCollection} />
+          {/* Tabs */}
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--surface-border)', paddingBottom: '0.5rem' }}>
+            <button className={`btn ${activeTab === 'collection' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('collection')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Folder size={16}/> Collection
+            </button>
+            <button className={`btn ${activeTab === 'local' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('local')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Search size={16}/> Local Folder
+            </button>
+          </div>
+
+          <div style={{ marginBottom: '1.5rem', minHeight: '80px' }}>
+            {activeTab === 'collection' && (
+              <>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select Zotero Collection</label>
+                <CollectionSelector value={collection} onChange={setCollection} />
+              </>
+            )}
+
+            {activeTab === 'local' && (
+              <>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select Local Folder</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input 
+                    type="text" 
+                    value={localPath} 
+                    onChange={(e) => setLocalPath(e.target.value)} 
+                    placeholder="Absolute path to folder with PDFs" 
+                    style={{ flex: 1, padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'rgba(0,0,0,0.05)', color: 'var(--text-primary)' }}
+                  />
+                  <button className="btn" onClick={handleSelectLocalFolder} style={{ background: 'var(--surface-color)' }}>Browse</button>
+                </div>
+              </>
+            )}
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
@@ -87,7 +140,7 @@ const Synthesizer: React.FC = () => {
           <button 
             className="btn btn-primary" 
             onClick={handleSynthesize}
-            disabled={isProcessing || !collection || !question}
+            disabled={isProcessing || !isReady()}
             style={{ width: '100%', gap: '0.5rem' }}
           >
             {isProcessing ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
