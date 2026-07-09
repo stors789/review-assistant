@@ -27,6 +27,16 @@ def verify_server():
     return False
 
 if __name__ == '__main__':
+    # Intercept subprocess calls that use sys.executable -m <module>
+    if len(sys.argv) >= 3 and sys.argv[1] == "-m":
+        import runpy
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+        module_name = sys.argv[2]
+        sys.argv = [sys.argv[0]] + sys.argv[3:]
+        runpy.run_module(module_name, run_name="__main__")
+        sys.exit(0)
+
     # Start FastAPI server in a daemon thread
     server_thread = threading.Thread(target=run_server, daemon=True)
     server_thread.start()
