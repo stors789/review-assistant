@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, Route, Routes } from 'react-router-dom';
 import { useTheme } from './ThemeContext';
 import { Sun, Moon, Library, CheckCircle, FileText, Share2, Sparkles, Settings as SettingsIcon } from 'lucide-react';
 import ZoteroExplorer from './pages/ZoteroExplorer';
@@ -10,7 +10,6 @@ import Settings from './pages/Settings';
 
 const App: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
-  const location = useLocation();
 
   return (
     <div className="app-container">
@@ -54,21 +53,13 @@ const App: React.FC = () => {
 
         {/* Page Content */}
         <div className="page-content animate-fade-in">
-          <div style={{ display: location.pathname === '/' ? 'block' : 'none' }}>
-            <ZoteroExplorer />
-          </div>
-          <div style={{ display: location.pathname === '/verify' ? 'block' : 'none' }}>
-            <ClaimVerifier />
-          </div>
-          <div style={{ display: location.pathname === '/breakdown' ? 'block' : 'none' }}>
-            <PaperBreakdown />
-          </div>
-          <div style={{ display: location.pathname === '/synthesize' ? 'block' : 'none' }}>
-            <Synthesizer />
-          </div>
-          <div style={{ display: location.pathname === '/settings' ? 'block' : 'none' }}>
-            <Settings />
-          </div>
+          <Routes>
+            <Route path="/" element={<ZoteroExplorer />} />
+            <Route path="/verify" element={<ClaimVerifier />} />
+            <Route path="/breakdown" element={<PaperBreakdown />} />
+            <Route path="/synthesize" element={<Synthesizer />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
         </div>
       </main>
     </div>

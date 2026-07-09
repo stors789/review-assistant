@@ -9,9 +9,17 @@ const Settings: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   useEffect(() => {
+    const loadJson = async (url: string) => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Failed to load ${url}: ${res.status}`);
+      }
+      return res.json();
+    };
+
     Promise.all([
-      fetch('/api/settings/').then(res => res.json()),
-      fetch('/api/settings/env-path').then(res => res.json())
+      loadJson('/api/settings/'),
+      loadJson('/api/settings/env-path')
     ])
     .then(([settingsData, pathData]) => {
       const s = settingsData.settings || {};
