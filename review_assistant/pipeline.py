@@ -10,7 +10,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .config import DEFAULT_FLASH_MODEL
-from .utils import file_sha256
+from .utils import file_sha256, extract_numeric_citations
 from .extraction import prepare_pdf_text, build_extraction_prompt
 from .errors import PDFExtractionError, LLMCallError
 from .prompts import (
@@ -554,7 +554,6 @@ def step3_match_and_write(client_factory, outline: dict, all_results: list[dict]
 
 def _clean_refs(report: str, paper_refs: dict) -> str:
     """Keep only references cited in the report body, removing orphan references."""
-    cited_nums = set(int(m) for m in re.findall(r'\[(\d+)\]', report))
     ref_marker = "\n## 参考文献\n"
     ref_idx = report.rfind(ref_marker)
     if ref_idx < 0:
@@ -563,13 +562,14 @@ def _clean_refs(report: str, paper_refs: dict) -> str:
     if ref_idx < 0:
         return report
     body = report[:ref_idx]
-    ref_list_lines = [ref_marker]
+    cited_nums = set(extract_numeric_citations(body))
+    ref_list_lines = ["\n## 参考文献\n"]
     for num in sorted(paper_refs.keys()):
         if num not in cited_nums:
             continue
         info = paper_refs[num]
         ref_list_lines.append(f"[{num}] {info['authors']}. *{info['title']}*. {info['year']}.")
-    return body + "\n".join(ref_list_lines)
+    return body.rstrip() + "\n".join(ref_list_lines)
 
 
 def step4_integrate(client, outline: dict, sections: list[dict],
@@ -687,33 +687,36 @@ def step7_summary(client_factory, report_text: str, step7_model: str = DEFAULT_F
                 f"(估计覆盖率={selected_view['estimated_direct_evidence_coverage']})",
                 flush=True,
             )
-            resp = c.chat.completions.create(
-                model=step7_model,
-                messages=[{"role": "user", "content": STEP7_TABLE_PROMPT.format(
+            resp = llm_client._chat_completion_create(c, {
+                "model": step7_model,
+                "messages": [{"role": "user", "content": STEP7_TABLE_PROMPT.format(
                     report=report_text,
                     table_view=json.dumps(selected_view, ensure_ascii=False, indent=2),
                 )}],
-                temperature=0,
-                max_tokens=4096,
-                timeout=60,
-            )
+                "temperature": 0,
+                "max_tokens": 4096,
+                "timeout": 60,
+            })
             t = resp.choices[0].message.content
             if t and "|" in t:
                 return t
         except LLMCallError as e:
             print(f"  ⚠ 表格生成失败 (attempts={e.attempts}): {e}", flush=True)
+        except Exception as e:
+            print(f"  ⚠ 表格生成失败（非API错误）: {e}",
+                  file=sys.stderr, flush=True)
         return ""
 
     def _gen_diagram():
         c = client_factory()
         try:
-            resp = c.chat.completions.create(
-                model=step7_model,
-                messages=[{"role": "user", "content": STEP7_DIAGRAM_PROMPT.format(report=report_text)}],
-                temperature=0,
-                max_tokens=8192,
-                timeout=60,
-            )
+            resp = llm_client._chat_completion_create(c, {
+                "model": step7_model,
+                "messages": [{"role": "user", "content": STEP7_DIAGRAM_PROMPT.format(report=report_text)}],
+                "temperature": 0,
+                "max_tokens": 8192,
+                "timeout": 60,
+            })
             d = resp.choices[0].message.content
             if d and "```mermaid" in d:
                 return d
@@ -728,8 +731,16 @@ def step7_summary(client_factory, report_text: str, step7_model: str = DEFAULT_F
     with ThreadPoolExecutor(max_workers=2) as ex:
         f_table = ex.submit(_gen_table)
         f_diag = ex.submit(_gen_diagram)
-        table = f_table.result(timeout=90)
-        diagram = f_diag.result(timeout=90)
+        try:
+            table = f_table.result(timeout=90)
+        except Exception as e:
+            print(f"  ⚠ 表格任务失败: {e}", file=sys.stderr, flush=True)
+            table = ""
+        try:
+            diagram = f_diag.result(timeout=90)
+        except Exception as e:
+            print(f"  ⚠ 示意图任务失败: {e}", file=sys.stderr, flush=True)
+            diagram = ""
 
     if table:
         result["table"] = table

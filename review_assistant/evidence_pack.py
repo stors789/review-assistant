@@ -62,7 +62,7 @@ VARIABLE_ROLES = {
 
 def _canonical_section(line: str) -> str | None:
     """Return a canonical section name if a line matches database headers."""
-    clean = re.sub(r"^\s*(?:\d+(?:\.\d+)*|[IVX]+)\s*[\).\s:-]*", "", line.strip(), flags=re.I)
+    clean = re.sub(r"^\s*(?:\d+(?:\.\d+)*|[IVX]+)[\).\s:-]+", "", line.strip(), flags=re.I)
     clean = re.sub(r"[:.\s]+$", "", clean).lower()
     if not clean or len(clean) > 80:
         return None

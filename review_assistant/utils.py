@@ -5,6 +5,7 @@ Common utility functions for PDF extraction, hashing, and text chunking.
 
 import hashlib
 import json
+import re
 import pymupdf
 from pathlib import Path
 from .errors import PDFExtractionError
@@ -60,6 +61,37 @@ def chunk_text(text: str, max_chars: int = 10000) -> list[str]:
     return chunks
 
 
+def extract_numeric_citations(text: str) -> list[int]:
+    """Extract citation numbers from Markdown-style numeric citations.
+
+    Supports single citations like [1], grouped citations like [1, 2],
+    and compact ranges like [1-3].
+    """
+    citations = []
+    for inner in re.findall(r"\[([0-9][0-9,\s\-]*)\]", text):
+        for part in inner.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "-" in part:
+                bounds = [p.strip() for p in part.split("-", 1)]
+                try:
+                    start, end = int(bounds[0]), int(bounds[1])
+                except (IndexError, ValueError):
+                    continue
+                if start <= 0 or end <= 0 or end < start or end - start > 100:
+                    continue
+                citations.extend(range(start, end + 1))
+                continue
+            try:
+                n = int(part)
+            except ValueError:
+                continue
+            if n > 0:
+                citations.append(n)
+    return citations
+
+
 def should_stop_after(current_step: str, stop_after: str | None) -> bool:
     """Check if the pipeline execution should stop after the current step."""
     return bool(stop_after and current_step == stop_after)
@@ -68,4 +100,3 @@ def should_stop_after(current_step: str, stop_after: str | None) -> bool:
 def print_stop_after(current_step: str, output_dir: Path):
     """Print the debug pipeline stop message."""
     print(f"\n⏹ --stop-after {current_step}: 已停止。输出目录: {output_dir}", flush=True)
-

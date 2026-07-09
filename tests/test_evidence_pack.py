@@ -62,8 +62,7 @@ class TestSplitTextChunks(unittest.TestCase):
         sections = {c["section"] for c in chunks}
         self.assertIn("detected_section", sources)
         self.assertIn("abstract", sections)
-        # The leading "I" in "Introduction" is consumed by the roman-numeral regex ([IVX]+)
-        # in _canonical_section, producing "ntroduction" which has no SECTION_ALIASES match.
+        self.assertIn("introduction", sections)
         self.assertIn("methods", sections)
         self.assertIn("results", sections)
         self.assertIn("discussion", sections)
@@ -129,13 +128,11 @@ The main findings are presented here.
         self.assertIn("Abstract", heads)
 
     def test_canonical_section_detects_mixed_case_aliases(self):
-        # Use aliases that don't start with I/V/X (the roman-numeral regex consumes
-        # leading I/V/X characters in _canonical_section). 'ABSTRACT' and 'SUMMARY'
-        # both map to the 'abstract' section, and 'METHODS' works fine.
-        text = "ABSTRACT\nAbstract paragraph.\n\nSUMMARY\nAnother abstract.\n\nMETHODS\nHow we did it."
+        text = "ABSTRACT\nAbstract paragraph.\n\nSUMMARY\nAnother abstract.\n\nINTRODUCTION\nIntro text.\n\nMETHODS\nHow we did it."
         chunks = split_text_chunks(text)
         sections = {c["section"] for c in chunks}
         self.assertIn("abstract", sections, "Both ABSTRACT and SUMMARY map to abstract")
+        self.assertIn("introduction", sections)
         self.assertIn("methods", sections)
 
 

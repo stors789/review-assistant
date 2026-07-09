@@ -145,7 +145,7 @@ def process_pdfs(pdf_paths: list[Path], output_dir: Path, model: str, api_key: s
     md_lines.append("|" + "|".join(["---"] * len(headers)) + "|")
     
     for r in all_results:
-        row = [str(r.get(k, "")).replace("\n", "<br>").replace("|", "\|") for k in headers]
+        row = [str(r.get(k, "")).replace("\n", "<br>").replace("|", "\\|") for k in headers]
         md_lines.append("| " + " | ".join(row) + " |")
         
     md_path.write_text("\n".join(md_lines), encoding="utf-8")

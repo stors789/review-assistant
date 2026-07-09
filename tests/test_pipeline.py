@@ -8,8 +8,9 @@ from unittest.mock import MagicMock, patch, ANY
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from review_assistant.pipeline import step1_extract_single
+from review_assistant.pipeline import _clean_refs, step1_extract_single
 from review_assistant.errors import PDFExtractionError
+from review_assistant.verification import verify_references_programmatic
 
 
 class TestStep1ExtractSingle(unittest.TestCase):
@@ -282,6 +283,54 @@ class TestStep1ExtractSingle(unittest.TestCase):
         self.assertFalse(result["relevant"])
         self.assertEqual(result["findings"], [])
         self.assertIn("PDF is encrypted", result.get("error", ""))
+
+
+class TestReferenceCleanup(unittest.TestCase):
+    def test_clean_refs_removes_uncited_refs_and_keeps_grouped_citations(self):
+        report = (
+            "# Report\n\n"
+            "Finding one is supported [1, 2]. Finding two is supported [4-5].\n\n"
+            "## 参考文献\n\n"
+            "[1] Old A.\n"
+            "[2] Old B.\n"
+            "[3] Old C.\n"
+            "[4] Old D.\n"
+            "[5] Old E.\n"
+        )
+        paper_refs = {
+            1: {"authors": "Author A", "title": "Paper A", "year": "2021"},
+            2: {"authors": "Author B", "title": "Paper B", "year": "2022"},
+            3: {"authors": "Author C", "title": "Paper C", "year": "2023"},
+            4: {"authors": "Author D", "title": "Paper D", "year": "2024"},
+            5: {"authors": "Author E", "title": "Paper E", "year": "2025"},
+        }
+
+        cleaned = _clean_refs(report, paper_refs)
+
+        self.assertIn("[1] Author A. *Paper A*. 2021.", cleaned)
+        self.assertIn("[2] Author B. *Paper B*. 2022.", cleaned)
+        self.assertNotIn("[3] Author C.", cleaned)
+        self.assertIn("[4] Author D. *Paper D*. 2024.", cleaned)
+        self.assertIn("[5] Author E. *Paper E*. 2025.", cleaned)
+
+    def test_programmatic_reference_check_understands_grouped_citations(self):
+        report = (
+            "# Report\n\n"
+            "Grouped citation [1, 2] and range citation [3-4].\n\n"
+            "## 参考文献\n\n"
+            "[1] Author A. *Paper A*. 2021.\n"
+            "[2] Author B. *Paper B*. 2022.\n"
+            "[3] Author C. *Paper C*. 2023.\n"
+            "[4] Author D. *Paper D*. 2024.\n"
+        )
+        paper_refs = {
+            1: {"authors": "Author A", "title": "Paper A", "year": "2021"},
+            2: {"authors": "Author B", "title": "Paper B", "year": "2022"},
+            3: {"authors": "Author C", "title": "Paper C", "year": "2023"},
+            4: {"authors": "Author D", "title": "Paper D", "year": "2024"},
+        }
+
+        self.assertEqual(verify_references_programmatic(report, paper_refs), "")
 
 
 if __name__ == "__main__":

@@ -121,7 +121,69 @@ def reset_client_pool() -> None:
     _default_pool = None
 
 
-def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: int = 4096, retries: int = 2) -> dict:
+def _apply_chat_param_fallback(kwargs: dict, error: Exception) -> bool:
+    """Mutate kwargs to remove or translate provider-specific parameters."""
+    err_msg = str(error).lower()
+    changed = False
+
+    unsupported_markers = (
+        "unsupported", "unrecognized", "unknown parameter", "extra parameter",
+        "unexpected keyword", "not support", "does not support", "invalid parameter",
+    )
+
+    def looks_param_error(param: str) -> bool:
+        return param.lower() in err_msg and any(marker in err_msg for marker in unsupported_markers)
+
+    if any(looks_param_error(p) for p in ("extra_body", "thinking", "reasoning_effort")):
+        changed = bool(kwargs.pop("reasoning_effort", None) is not None) or changed
+        changed = bool(kwargs.pop("extra_body", None) is not None) or changed
+
+    if looks_param_error("temperature") and "temperature" in kwargs:
+        kwargs.pop("temperature", None)
+        changed = True
+
+    if looks_param_error("max_tokens") and "max_tokens" in kwargs:
+        kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+        changed = True
+    elif looks_param_error("max_completion_tokens") and "max_completion_tokens" in kwargs:
+        kwargs["max_tokens"] = kwargs.pop("max_completion_tokens")
+        changed = True
+
+    return changed
+
+
+def _chat_completion_create(client: OpenAI, kwargs: dict):
+    """Create a chat completion, retrying once with compatible parameters."""
+    try:
+        return client.chat.completions.create(**kwargs)
+    except Exception as e:
+        retry_kwargs = dict(kwargs)
+        if _apply_chat_param_fallback(retry_kwargs, e):
+            return client.chat.completions.create(**retry_kwargs)
+        raise
+
+
+def _parse_json_content(content: str):
+    """Parse model output as JSON, accepting fenced objects or arrays."""
+    content = content.strip()
+    content = re.sub(r'^```(?:json)?\s*', '', content)
+    content = re.sub(r'\s*```$', '', content).strip()
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        for i, ch in enumerate(content):
+            if ch not in "{[":
+                continue
+            try:
+                obj, _ = decoder.raw_decode(content[i:])
+                return obj
+            except json.JSONDecodeError:
+                continue
+        raise
+
+
+def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: int = 4096, retries: int = 2):
     """JSON extraction using pro thinking mode, prompt constraints, and robust regex fallback parsing."""
     last_err = None
     for attempt in range(retries + 1):
@@ -148,33 +210,12 @@ def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: in
                 kwargs["reasoning_effort"] = get_reasoning_effort("high")
                 kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
-            try:
-                resp = client.chat.completions.create(**kwargs)
-            except Exception as e:
-                err_msg = str(e).lower()
-                # If provider does not support these extra parameters, strip them and retry immediately
-                if any(p in err_msg for p in ("extra_body", "thinking", "reasoning_effort", "unrecognized", "unknown parameter", "extra parameter", "unexpected keyword")):
-                    kwargs.pop("reasoning_effort", None)
-                    kwargs.pop("extra_body", None)
-                    if "temperature" not in kwargs:
-                        kwargs["temperature"] = get_temperature(0)
-                    resp = client.chat.completions.create(**kwargs)
-                else:
-                    raise
+            resp = _chat_completion_create(client, kwargs)
 
             content = resp.choices[0].message.content
             if not content or not content.strip():
                 raise ValueError("API returned empty response")
-            content = content.strip()
-            content = re.sub(r'^```(?:json)?\s*', '', content)
-            content = re.sub(r'\s*```$', '', content)
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError:
-                m = re.search(r'\{.*\}', content, re.DOTALL)
-                if m:
-                    return json.loads(m.group(0))
-                raise
+            return _parse_json_content(content)
         except Exception as e:
             last_err = e
             if attempt < retries:
@@ -185,34 +226,26 @@ def call_json(client: OpenAI, system: str, user: str, model: str, max_tokens: in
 
 
 def call_json_light(client: OpenAI, system: str, user: str, model: str = DEFAULT_FLASH_MODEL,
-                    max_tokens: int = 16384, retries: int = 2) -> dict:
+                    max_tokens: int = 16384, retries: int = 2):
     """Lightweight JSON extraction without reasoning, suitable for validation to prevent output truncation."""
     last_err = None
     for attempt in range(retries + 1):
         try:
             sys_prompt = get_system_prompt_prefix() + "\n" + system if get_system_prompt_prefix() else system
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": user},
                 ],
-                temperature=get_temperature(0),
-                max_tokens=max_tokens,
-            )
+                "temperature": get_temperature(0),
+                "max_tokens": max_tokens,
+            }
+            resp = _chat_completion_create(client, kwargs)
             content = resp.choices[0].message.content
             if not content or not content.strip():
                 raise ValueError("API returned empty response")
-            content = content.strip()
-            content = re.sub(r'^```(?:json)?\s*', '', content)
-            content = re.sub(r'\s*```$', '', content)
-            try:
-                return json.loads(content)
-            except json.JSONDecodeError:
-                m = re.search(r'\{.*\}', content, re.DOTALL)
-                if m:
-                    return json.loads(m.group(0))
-                raise
+            return _parse_json_content(content)
         except Exception as e:
             last_err = e
             if attempt < retries:
@@ -246,19 +279,7 @@ def call_text(client: OpenAI, prompt: str, model: str, max_tokens: int = 4096, r
                 kwargs["reasoning_effort"] = get_reasoning_effort("high")
                 kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
 
-            try:
-                resp = client.chat.completions.create(**kwargs)
-            except Exception as e:
-                err_msg = str(e).lower()
-                # If provider does not support these extra parameters, strip them and retry immediately
-                if any(p in err_msg for p in ("extra_body", "thinking", "reasoning_effort", "unrecognized", "unknown parameter", "extra parameter", "unexpected keyword")):
-                    kwargs.pop("reasoning_effort", None)
-                    kwargs.pop("extra_body", None)
-                    if "temperature" not in kwargs:
-                        kwargs["temperature"] = get_temperature(temperature)
-                    resp = client.chat.completions.create(**kwargs)
-                else:
-                    raise
+            resp = _chat_completion_create(client, kwargs)
 
             content = resp.choices[0].message.content
             if not content or not content.strip():

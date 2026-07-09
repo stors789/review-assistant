@@ -8,7 +8,7 @@ import json
 import re
 import threading
 from pathlib import Path
-from .utils import file_sha256, chunk_text
+from .utils import file_sha256, chunk_text, extract_numeric_citations
 from .errors import LLMCallError, PDFExtractionError
 from . import llm_client
 from .prompts import (
@@ -200,7 +200,7 @@ def _split_report_refs(report: str) -> tuple[str, str]:
 def verify_references_programmatic(report: str, paper_refs: dict) -> str:
     """Deterministically check numeric citations and generated reference list."""
     body, refs = _split_report_refs(report)
-    body_cites = [int(m) for m in re.findall(r"\[(\d+)\]", body)]
+    body_cites = extract_numeric_citations(body)
     ref_nums = [int(m) for m in re.findall(r"^\[(\d+)\]\s+", refs, flags=re.MULTILINE)]
     body_set = set(body_cites)
     ref_set = set(ref_nums)
