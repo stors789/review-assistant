@@ -1,11 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Loader2 } from 'lucide-react';
-
-interface ZoteroCollection {
-  name: string;
-  total: number;
-  has_attachment: number;
-}
+import { useZotero } from '../ZoteroContext';
 
 interface CollectionSelectorProps {
   value: string;
@@ -13,25 +8,7 @@ interface CollectionSelectorProps {
 }
 
 const CollectionSelector: React.FC<CollectionSelectorProps> = ({ value, onChange }) => {
-  const [collections, setCollections] = useState<ZoteroCollection[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    fetch('/api/zotero/collections')
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch');
-        return res.json();
-      })
-      .then(data => {
-        setCollections(data.collections || []);
-        setLoading(false);
-      })
-      .catch(err => {
-        setError(err.message);
-        setLoading(false);
-      });
-  }, []);
+  const { collections, loading, error } = useZotero();
 
   if (loading) {
     return <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', padding: '0.75rem 0' }}><Loader2 size={16} className="animate-spin"/> Loading collections...</div>;

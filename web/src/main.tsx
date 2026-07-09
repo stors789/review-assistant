@@ -4,12 +4,15 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import { ThemeProvider } from './ThemeContext.tsx'
+import { ZoteroProvider } from './ZoteroContext.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <ThemeProvider>
-        <App />
+        <ZoteroProvider>
+          <App />
+        </ZoteroProvider>
       </ThemeProvider>
     </BrowserRouter>
   </StrictMode>,
