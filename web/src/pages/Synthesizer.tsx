@@ -81,10 +81,10 @@ const Synthesizer: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
         {/* Input Form */}
         <div className="glass-panel card">
-          <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600 }}>New Synthesis Task</h2>
+          <h2 className="section-title">New Synthesis Task</h2>
           
           {/* Tabs */}
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--surface-border)', paddingBottom: '0.5rem' }}>
+          <div className="tab-container">
             <button className={`btn ${activeTab === 'collection' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('collection')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Folder size={16}/> Collection
             </button>
@@ -96,14 +96,14 @@ const Synthesizer: React.FC = () => {
           <div style={{ marginBottom: '1.5rem', minHeight: '80px' }}>
             {activeTab === 'collection' && (
               <>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select Zotero Collection</label>
+                <label className="form-label">Select Zotero Collection</label>
                 <CollectionSelector value={collection} onChange={setCollection} />
               </>
             )}
 
             {activeTab === 'local' && (
               <>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select Local Folder</label>
+                <label className="form-label">Select Local Folder</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input 
                     type="text" 
@@ -120,21 +120,14 @@ const Synthesizer: React.FC = () => {
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Research Question</label>
+            <label className="form-label">Research Question</label>
             <textarea 
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
               placeholder="e.g. What are the current limitations of Graph Neural Networks in molecular property prediction?"
               rows={4}
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                borderRadius: '8px',
-                border: '1px solid var(--surface-border)',
-                background: 'rgba(0,0,0,0.05)',
-                color: 'var(--text-primary)',
-                resize: 'vertical'
-              }}
+              className="input-field"
+              style={{ resize: 'vertical' }}
             />
           </div>
 
@@ -151,17 +144,8 @@ const Synthesizer: React.FC = () => {
 
         {/* Real-time Logs */}
         <div className="glass-panel card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600 }}>Live Progress</h2>
-          <div style={{ 
-            flex: 1, 
-            background: 'var(--bg-color)', 
-            borderRadius: '8px', 
-            padding: '1rem',
-            fontFamily: 'monospace',
-            fontSize: '0.9rem',
-            overflowY: 'auto',
-            minHeight: '300px'
-          }}>
+          <h2 className="section-title">Live Progress</h2>
+          <div className="log-box">
             {logs.length === 0 ? (
               <div style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
                 Awaiting task start...

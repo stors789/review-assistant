@@ -83,10 +83,10 @@ const PaperBreakdown: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
         {/* Input Form */}
         <div className="glass-panel card">
-          <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600 }}>New Breakdown Task</h2>
+          <h2 className="section-title">New Breakdown Task</h2>
           
           {/* Tabs */}
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--surface-border)', paddingBottom: '0.5rem' }}>
+          <div className="tab-container">
             <button className={`btn ${activeTab === 'collection' ? 'btn-primary' : ''}`} onClick={() => setActiveTab('collection')} style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Folder size={16}/> Collection
             </button>
@@ -101,7 +101,7 @@ const PaperBreakdown: React.FC = () => {
           <div style={{ marginBottom: '1.5rem', minHeight: '120px' }}>
             {activeTab === 'collection' && (
               <>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select Zotero Collection</label>
+                <label className="form-label">Select Zotero Collection</label>
                 <CollectionSelector value={collection} onChange={setCollection} />
                 <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Extract structured fields from all PDFs in this collection.</p>
               </>
@@ -109,18 +109,18 @@ const PaperBreakdown: React.FC = () => {
             
             {activeTab === 'item' && (
               <>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select Zotero Collection</label>
+                <label className="form-label">Select Zotero Collection</label>
                 <div style={{ marginBottom: '1rem' }}>
                   <CollectionSelector value={collection} onChange={setCollection} />
                 </div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select PDF Paper</label>
+                <label className="form-label">Select PDF Paper</label>
                 <ZoteroItemSelector collection={collection} value={item} onChange={setItem} />
               </>
             )}
 
             {activeTab === 'local' && (
               <>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Select Local PDF File</label>
+                <label className="form-label">Select Local PDF File</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input 
                     type="text" 
@@ -149,17 +149,8 @@ const PaperBreakdown: React.FC = () => {
 
         {/* Real-time Logs */}
         <div className="glass-panel card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600 }}>Live Progress</h2>
-          <div style={{ 
-            flex: 1, 
-            background: 'var(--bg-color)', 
-            borderRadius: '8px', 
-            padding: '1rem',
-            fontFamily: 'monospace',
-            fontSize: '0.9rem',
-            overflowY: 'auto',
-            minHeight: '300px'
-          }}>
+          <h2 className="section-title">Live Progress</h2>
+          <div className="log-box">
             {logs.length === 0 ? (
               <div style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
                 Awaiting task start...

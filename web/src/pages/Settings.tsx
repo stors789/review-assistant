@@ -143,7 +143,7 @@ const Settings: React.FC = () => {
 
       {/* Global Configuration */}
       <div className="glass-panel card" style={{ marginBottom: '1.5rem' }}>
-        <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <h2 className="section-title">
           <FolderOpen size={20} color="var(--accent-color)" /> Configuration File
         </h2>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -163,7 +163,7 @@ const Settings: React.FC = () => {
 
       {/* LLM Configuration */}
       <div className="glass-panel card" style={{ marginBottom: '1.5rem' }}>
-        <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h2 className="section-title" style={{ justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Key size={20} color="var(--accent-color)" /> LLM Provider
           </div>
@@ -182,7 +182,7 @@ const Settings: React.FC = () => {
         
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Primary API Key</label>
+            <label className="form-label">Primary API Key</label>
             <input 
               type="password" 
               value={settings['DEEPSEEK_API_KEY'] || settings['OPENAI_API_KEY'] || ''}
@@ -196,7 +196,7 @@ const Settings: React.FC = () => {
           {extraKeys.map((k) => settings[k] !== '__REMOVED__' && (
             <div key={k} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Backup API Key ({k})</label>
+                <label className="form-label" style={{ color: 'var(--text-secondary)' }}>Backup API Key ({k})</label>
                 <input 
                   type="password" 
                   value={settings[k]}
@@ -213,7 +213,7 @@ const Settings: React.FC = () => {
           <button className="btn" onClick={handleAddKey} style={{ alignSelf: 'flex-start', fontSize: '0.9rem', padding: '0.5rem 1rem' }}>+ Add Extra Key for Parallel Workflows</button>
 
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem', marginTop: '1rem' }}>Base URL</label>
+            <label className="form-label" style={{ marginTop: '1rem' }}>Base URL</label>
             <input 
               type="text" 
               value={settings['REVIEW_ASSISTANT_BASE_URL'] || ''}
@@ -225,7 +225,7 @@ const Settings: React.FC = () => {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Primary Model</label>
+              <label className="form-label">Primary Model</label>
               <input 
                 type="text" 
                 value={settings['REVIEW_ASSISTANT_MODEL'] || ''}
@@ -236,7 +236,7 @@ const Settings: React.FC = () => {
               />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Step 7 Model (Tables/Diagrams)</label>
+              <label className="form-label">Step 7 Model (Tables/Diagrams)</label>
               <input 
                 type="text" 
                 value={settings['REVIEW_ASSISTANT_STEP7_MODEL'] || ''}
@@ -250,7 +250,7 @@ const Settings: React.FC = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.5rem' }}>
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Temperature</label>
+              <label className="form-label">Temperature</label>
               <input 
                 type="number" 
                 step="0.1" min="0" max="2"
@@ -262,7 +262,7 @@ const Settings: React.FC = () => {
               />
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Thinking Level (Reasoning Effort)</label>
+              <label className="form-label">Thinking Level (Reasoning Effort)</label>
               <select 
                 value={settings['REVIEW_ASSISTANT_REASONING_EFFORT'] || 'high'}
                 onChange={(e) => handleChange('REVIEW_ASSISTANT_REASONING_EFFORT', e.target.value)}
@@ -277,7 +277,7 @@ const Settings: React.FC = () => {
           </div>
 
           <div style={{ marginTop: '0.5rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Global System Prompt Prefix</label>
+            <label className="form-label">Global System Prompt Prefix</label>
             <textarea 
               value={settings['REVIEW_ASSISTANT_SYSTEM_PROMPT_PREFIX'] || ''}
               onChange={(e) => handleChange('REVIEW_ASSISTANT_SYSTEM_PROMPT_PREFIX', e.target.value)}
@@ -292,13 +292,13 @@ const Settings: React.FC = () => {
 
       {/* Literature APIs */}
       <div className="glass-panel card" style={{ marginBottom: '1.5rem' }}>
-        <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <h2 className="section-title">
           <Globe size={20} color="var(--accent-color)" /> Literature Search APIs
         </h2>
         
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Semantic Scholar API Key</label>
+            <label className="form-label">Semantic Scholar API Key</label>
             <input 
               type="password" 
               value={settings['SS_API_KEY'] || ''}
@@ -308,7 +308,7 @@ const Settings: React.FC = () => {
             />
           </div>
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>PubMed API Key</label>
+            <label className="form-label">PubMed API Key</label>
             <input 
               type="password" 
               value={settings['PUBMED_API_KEY'] || ''}
@@ -322,13 +322,13 @@ const Settings: React.FC = () => {
 
       {/* Zotero API */}
       <div className="glass-panel card" style={{ marginBottom: '1.5rem' }}>
-        <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <h2 className="section-title">
           <Database size={20} color="var(--accent-color)" /> Zotero Cloud Sync
         </h2>
         
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Zotero API Key</label>
+            <label className="form-label">Zotero API Key</label>
             <input 
               type="password" 
               value={settings['ZOTERO_API_KEY'] || ''}
@@ -339,7 +339,7 @@ const Settings: React.FC = () => {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Library Type</label>
+              <label className="form-label">Library Type</label>
               <select 
                 value={settings['ZOTERO_LIBRARY_TYPE'] || 'user'}
                 onChange={(e) => handleChange('ZOTERO_LIBRARY_TYPE', e.target.value)}
@@ -351,7 +351,7 @@ const Settings: React.FC = () => {
               </select>
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Library ID</label>
+              <label className="form-label">Library ID</label>
               <input 
                 type="text" 
                 value={settings['ZOTERO_LIBRARY_ID'] || ''}

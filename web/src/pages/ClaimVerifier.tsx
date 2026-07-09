@@ -58,30 +58,22 @@ const ClaimVerifier: React.FC = () => {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
         {/* Input Form */}
         <div className="glass-panel card">
-          <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600 }}>New Verification Task</h2>
+          <h2 className="section-title">New Verification Task</h2>
           
           <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Zotero Collection</label>
+            <label className="form-label">Zotero Collection</label>
             <CollectionSelector value={collection} onChange={setCollection} />
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Paragraph to Verify</label>
+            <label className="form-label">Paragraph to Verify</label>
             <textarea 
               value={paragraph}
               onChange={(e) => setParagraph(e.target.value)}
               placeholder="Paste the paragraph with academic claims here..."
               rows={6}
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                fontSize: '1rem',
-                borderRadius: '8px',
-                border: '1px solid var(--surface-border)',
-                background: 'rgba(0,0,0,0.05)',
-                color: 'var(--text-primary)',
-                resize: 'vertical'
-              }}
+              className="input-field"
+              style={{ resize: 'vertical' }}
             />
           </div>
 
@@ -98,17 +90,8 @@ const ClaimVerifier: React.FC = () => {
 
         {/* Real-time Logs */}
         <div className="glass-panel card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600 }}>Live Progress</h2>
-          <div style={{ 
-            flex: 1, 
-            background: 'var(--bg-color)', 
-            borderRadius: '8px', 
-            padding: '1rem',
-            fontFamily: 'monospace',
-            fontSize: '0.9rem',
-            overflowY: 'auto',
-            minHeight: '300px'
-          }}>
+          <h2 className="section-title">Live Progress</h2>
+          <div className="log-box">
             {logs.length === 0 ? (
               <div style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
                 Awaiting task start...
