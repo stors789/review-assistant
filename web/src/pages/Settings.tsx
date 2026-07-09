@@ -43,6 +43,27 @@ const Settings: React.FC = () => {
     }
   };
 
+  // Extract extra API keys
+  const extraKeys = Object.keys(settings).filter(k => 
+    (k.startsWith('DEEPSEEK_API_KEY_') || k.startsWith('OPENAI_API_KEY_')) && 
+    k !== 'DEEPSEEK_API_KEY' && k !== 'OPENAI_API_KEY'
+  ).sort();
+
+  const handleAddKey = () => {
+    const nextIdx = extraKeys.length ? Math.max(...extraKeys.map(k => parseInt(k.split('_').pop() || '1') || 1)) + 1 : 2;
+    const provider = (settings['OPENAI_API_KEY'] !== undefined && settings['DEEPSEEK_API_KEY'] === undefined) ? 'OPENAI_API_KEY_' : 'DEEPSEEK_API_KEY_';
+    handleChange(`${provider}${nextIdx}`, '');
+  };
+
+  const handleRemoveKey = (k: string) => {
+    setSettings(prev => {
+      const copy = { ...prev };
+      delete copy[k]; // UI removal, but we should write empty to clear from .env
+      copy[k] = '';
+      return copy;
+    });
+  };
+
   if (loading) {
     return <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)' }}><Loader2 size={16} className="animate-spin"/> Loading settings...</div>;
   }
@@ -77,13 +98,26 @@ const Settings: React.FC = () => {
 
       {/* LLM Configuration */}
       <div className="glass-panel card" style={{ marginBottom: '1.5rem' }}>
-        <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Key size={20} color="var(--accent-color)" /> LLM Provider
+        <h2 style={{ fontSize: '1.2rem', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Key size={20} color="var(--accent-color)" /> LLM Provider
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', fontWeight: 'normal' }}>
+             <label>Concurrency (Workers):</label>
+             <input 
+               type="number" 
+               min="1" max="20"
+               value={settings['REVIEW_ASSISTANT_WORKERS'] || '5'}
+               onChange={(e) => handleChange('REVIEW_ASSISTANT_WORKERS', e.target.value)}
+               title="Set to 1 to disable concurrent requests"
+               style={{ width: '60px', padding: '0.25rem 0.5rem', borderRadius: '4px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+             />
+          </div>
         </h2>
         
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>DeepSeek API Key (or OpenAI)</label>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Primary API Key</label>
             <input 
               type="password" 
               value={settings['DEEPSEEK_API_KEY'] || settings['OPENAI_API_KEY'] || ''}
@@ -93,8 +127,28 @@ const Settings: React.FC = () => {
               style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
             />
           </div>
+          
+          {extraKeys.map((k) => settings[k] !== '' && (
+            <div key={k} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Backup API Key ({k})</label>
+                <input 
+                  type="password" 
+                  value={settings[k]}
+                  onChange={(e) => handleChange(k, e.target.value)}
+                  placeholder="sk-..."
+                  className="input-field"
+                  style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'var(--bg-color)', color: 'var(--text-primary)' }}
+                />
+              </div>
+              <button className="btn" style={{ height: '46px', color: '#ef4444', borderColor: '#ef4444' }} onClick={() => handleRemoveKey(k)}>Remove</button>
+            </div>
+          ))}
+
+          <button className="btn" onClick={handleAddKey} style={{ alignSelf: 'flex-start', fontSize: '0.9rem', padding: '0.5rem 1rem' }}>+ Add Extra Key for Parallel Workflows</button>
+
           <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem' }}>Base URL</label>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem', marginTop: '1rem' }}>Base URL</label>
             <input 
               type="text" 
               value={settings['REVIEW_ASSISTANT_BASE_URL'] || ''}
