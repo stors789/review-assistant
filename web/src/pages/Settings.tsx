@@ -14,7 +14,13 @@ const Settings: React.FC = () => {
       fetch('/api/settings/env-path').then(res => res.json())
     ])
     .then(([settingsData, pathData]) => {
-      setSettings(settingsData.settings || {});
+      const s = settingsData.settings || {};
+      Object.keys(s).forEach(k => {
+        if ((k.startsWith('DEEPSEEK_API_KEY_') || k.startsWith('OPENAI_API_KEY_')) && s[k] === '') {
+          s[k] = '__REMOVED__';
+        }
+      });
+      setSettings(s);
       setEnvPath(pathData.path || '');
       setLoading(false);
     })
@@ -33,10 +39,14 @@ const Settings: React.FC = () => {
     setSaving(true);
     setMessage(null);
     try {
+      const finalSettings = { ...settings };
+      Object.keys(finalSettings).forEach(k => {
+        if (finalSettings[k] === '__REMOVED__') finalSettings[k] = '';
+      });
       const res = await fetch('/api/settings/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings })
+        body: JSON.stringify({ settings: finalSettings })
       });
       if (!res.ok) throw new Error('Failed to save settings');
       setMessage({ type: 'success', text: 'Settings saved successfully.' });
@@ -62,8 +72,7 @@ const Settings: React.FC = () => {
   const handleRemoveKey = (k: string) => {
     setSettings(prev => {
       const copy = { ...prev };
-      delete copy[k]; // UI removal, but we should write empty to clear from .env
-      copy[k] = '';
+      copy[k] = '__REMOVED__';
       return copy;
     });
   };
@@ -84,7 +93,13 @@ const Settings: React.FC = () => {
         setLoading(true);
         const settingsRes = await fetch('/api/settings/');
         const settingsData = await settingsRes.json();
-        setSettings(settingsData.settings || {});
+        const s = settingsData.settings || {};
+        Object.keys(s).forEach(k => {
+          if ((k.startsWith('DEEPSEEK_API_KEY_') || k.startsWith('OPENAI_API_KEY_')) && s[k] === '') {
+            s[k] = '__REMOVED__';
+          }
+        });
+        setSettings(s);
         setMessage({ type: 'success', text: `Loaded settings from ${data.path}` });
         setLoading(false);
       }
@@ -178,7 +193,7 @@ const Settings: React.FC = () => {
             />
           </div>
           
-          {extraKeys.map((k) => settings[k] !== '' && (
+          {extraKeys.map((k) => settings[k] !== '__REMOVED__' && (
             <div key={k} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Backup API Key ({k})</label>
