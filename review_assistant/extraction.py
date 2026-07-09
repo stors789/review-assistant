@@ -5,9 +5,9 @@ without introducing circular dependencies.
 """
 
 from pathlib import Path
-from utils import extract_pdf_text, file_sha256
-from errors import PDFExtractionError
-from evidence_pack import build_evidence_pack
+from .utils import extract_pdf_text, file_sha256
+from .errors import PDFExtractionError
+from .evidence_pack import build_evidence_pack
 
 
 def prepare_pdf_text(pdf_path: Path, text_cache_dir: Path) -> str:

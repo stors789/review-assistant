@@ -30,8 +30,8 @@ from urllib.parse import quote
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import requests
-from zotero_reader import ZoteroReader
-from config import (
+from .zotero_reader import ZoteroReader
+from .config import (
     should_strip_proxy,
     get_zotero_dir,
     get_zotero_api_key,
@@ -40,7 +40,7 @@ from config import (
     get_zotero_web_import,
     get_zotero_sync_timeout,
 )
-from zotero_web import ZoteroWebClient, ZoteroWebError, wait_for_local_dois
+from .zotero_web import ZoteroWebClient, ZoteroWebError, wait_for_local_dois
 
 SS_API = "https://api.semanticscholar.org/graph/v1/paper/search"
 SS_FIELDS = "title,authors,year,externalIds,journal,publicationDate,abstract,citationCount,openAccessPdf"

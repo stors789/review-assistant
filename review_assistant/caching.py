@@ -6,7 +6,7 @@ Caching system logic for all steps of the literature review synthesis pipeline.
 import json
 import hashlib
 from pathlib import Path
-from utils import file_sha256
+from .utils import file_sha256
 import sys
 
 # Cache Versions

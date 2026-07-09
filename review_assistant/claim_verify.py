@@ -20,11 +20,11 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import llm_client
-from config import get_api_key, get_base_url, get_model, get_zotero_dir, DEFAULT_FLASH_MODEL
-from utils import extract_text
-from errors import PDFExtractionError, LLMCallError
-from zotero_reader import ZoteroReader
+from . import llm_client
+from .config import get_api_key, get_base_url, get_model, get_zotero_dir, DEFAULT_FLASH_MODEL
+from .utils import extract_text
+from .errors import PDFExtractionError, LLMCallError
+from .zotero_reader import ZoteroReader
 
 CLAIM_DECOMPOSE_PROMPT = """你是一位严谨的学术编辑。请将以下段落拆解为若干独立且可验证的学术主张，每一条是一个完整的陈述句。
 

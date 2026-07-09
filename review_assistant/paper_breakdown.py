@@ -12,10 +12,10 @@ import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from utils import extract_text
-from errors import PDFExtractionError, LLMCallError
-import llm_client
-from config import get_api_key, get_base_url, get_model, get_workers, get_zotero_dir, DEFAULT_FLASH_MODEL
+from .utils import extract_text
+from .errors import PDFExtractionError, LLMCallError
+from . import llm_client
+from .config import get_api_key, get_base_url, get_model, get_workers, get_zotero_dir, DEFAULT_FLASH_MODEL
 
 FIELDS = {
     "original_title": "原题目",
@@ -157,7 +157,7 @@ def main():
     args = parser.parse_args()
 
     if args.list_collections:
-        from zotero_reader import ZoteroReader
+        from .zotero_reader import ZoteroReader
         with ZoteroReader(zotero_dir=args.zotero_dir) as reader:
             print(f"{'论文集':<14} {'总数':>5} {'有PDF':>5} {'缺PDF':>5}")
             print("-" * 36)
@@ -166,7 +166,7 @@ def main():
         return
 
     if args.list_papers:
-        from zotero_reader import ZoteroReader
+        from .zotero_reader import ZoteroReader
         with ZoteroReader(zotero_dir=args.zotero_dir) as reader:
             items = reader.list_items(args.list_papers)
             have = sum(1 for it in items if it["pdf_available"])
@@ -196,7 +196,7 @@ def main():
 
     pdf_paths = []
     if args.zotero_collection:
-        from zotero_reader import ZoteroReader
+        from .zotero_reader import ZoteroReader
         with ZoteroReader(zotero_dir=args.zotero_dir) as reader:
             papers = reader.get_papers(args.zotero_collection)
             for p in papers:

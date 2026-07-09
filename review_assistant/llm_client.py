@@ -9,8 +9,8 @@ import json
 import itertools
 import threading
 from openai import OpenAI
-from config import DEFAULT_BASE_URL, DEFAULT_FLASH_MODEL, get_api_key, should_strip_proxy
-from errors import LLMCallError
+from .config import DEFAULT_BASE_URL, DEFAULT_FLASH_MODEL, get_api_key, should_strip_proxy
+from .errors import LLMCallError
 
 
 class ClientPool:

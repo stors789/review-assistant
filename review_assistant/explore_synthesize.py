@@ -28,14 +28,14 @@ from pathlib import Path
 # Add script directory to path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from zotero_reader import ZoteroReader
+from .zotero_reader import ZoteroReader
 
 # Import modular components
 STOP_AFTER_CHOICES = ("step1", "ver1", "step2", "step3", "step4")
-from llm_client import init_client_pool, get_client
-from config import get_api_key, get_base_url, get_model, get_step7_model, get_workers, get_zotero_dir, DEFAULT_PRO_MODEL
-from utils import should_stop_after, print_stop_after
-from caching import (
+from .llm_client import init_client_pool, get_client
+from .config import get_api_key, get_base_url, get_model, get_step7_model, get_workers, get_zotero_dir, DEFAULT_PRO_MODEL
+from .utils import should_stop_after, print_stop_after
+from .caching import (
     OUTLINE_CACHE_VERSION,
     SECTIONS_CACHE_VERSION,
     REPORT_CACHE_VERSION,
@@ -47,7 +47,7 @@ from caching import (
     load_cached_report,
     save_cached_report,
 )
-from verification import (
+from .verification import (
     verify_findings,
     verify_citations,
     verify_claim_map,
@@ -55,7 +55,7 @@ from verification import (
     verify_references_programmatic,
     step6_fix_report,
 )
-from pipeline import (
+from .pipeline import (
     step1_extract_all,
     load_cached_findings_for_papers,
     step2_generate_outline,
@@ -380,9 +380,9 @@ def main():
 
 # Module-level redirection for testing backwards compatibility (e.g. test_explore_synthesize.py)
 import types
-import utils
-import caching
-import llm_client
+from . import utils
+from . import caching
+from . import llm_client
 
 class ExploreSynthesizeModule(types.ModuleType):
     def __getattr__(self, name):

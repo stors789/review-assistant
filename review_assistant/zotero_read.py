@@ -6,7 +6,7 @@ if sys.version_info < (3, 10):
     sys.exit(1)
 
 import argparse
-from zotero_reader import ZoteroReader
+from .zotero_reader import ZoteroReader
 
 
 

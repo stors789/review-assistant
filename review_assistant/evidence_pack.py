@@ -10,9 +10,9 @@ import time
 import math
 import sys
 from pathlib import Path
-from config import get_rerank_model
-from prompts import AI_CHUNK_RERANK_PROMPT
-import llm_client
+from .config import get_rerank_model
+from .prompts import AI_CHUNK_RERANK_PROMPT
+from . import llm_client
 
 # Constants
 SECTION_ALIASES = {
@@ -395,7 +395,7 @@ def build_evidence_pack(text: str, question: str, max_chars: int = 80000,
         if not cache_dir:
             cache_dir = Path("cache")
         try:
-            import llm_client
+            from review_assistant import llm_client
             emb_client = llm_client.get_embedding_client()
             query_emb = llm_client.get_embedding(emb_client, question)
             chunk_embs = load_or_compute_embeddings(pdf_hash, scored, cache_dir, emb_client)
@@ -680,7 +680,7 @@ def load_or_compute_embeddings(pdf_hash: str, chunks: list[dict], cache_dir: Pat
             missing.append((c, cid, ctext_hash))
 
     if missing:
-        import llm_client
+        from review_assistant import llm_client
         for c, cid, ctext_hash in missing:
             try:
                 emb = llm_client.get_embedding(emb_client, c["text"])

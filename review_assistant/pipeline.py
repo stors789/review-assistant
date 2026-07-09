@@ -9,11 +9,11 @@ import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import DEFAULT_FLASH_MODEL
-from utils import file_sha256
-from extraction import prepare_pdf_text, build_extraction_prompt
-from errors import PDFExtractionError, LLMCallError
-from prompts import (
+from .config import DEFAULT_FLASH_MODEL
+from .utils import file_sha256
+from .extraction import prepare_pdf_text, build_extraction_prompt
+from .errors import PDFExtractionError, LLMCallError
+from .prompts import (
     STEP1_SYSTEM,
     STEP2_PROMPT,
     STEP3_MATCH_PROMPT,
@@ -24,9 +24,9 @@ from prompts import (
     STEP7_TABLE_PROMPT,
     STEP7_DIAGRAM_PROMPT,
 )
-import llm_client
-from caching import findings_cache_key, FINDINGS_CACHE_VERSION
-from evidence_pack import (
+from . import llm_client
+from .caching import findings_cache_key, FINDINGS_CACHE_VERSION
+from .evidence_pack import (
     normalize_finding_relevance,
     format_finding_metadata,
 )
@@ -261,9 +261,9 @@ def step2_generate_outline(client, all_results: list[dict], question: str,
 
     # Generic Fallback Outline Generation
     try:
-        from prompts import STEP2_MODEL_FALLBACK
+        from .prompts import STEP2_MODEL_FALLBACK
         print(f"  🔄 尝试使用 {STEP2_MODEL_FALLBACK} 生成大纲...", flush=True)
-        from llm_client import get_client
+        from .llm_client import get_client
         pro_client = get_client()
         outline = llm_client.call_json(pro_client, "", STEP2_PROMPT.format(question=question, findings=findings_index), STEP2_MODEL_FALLBACK, 32768)
         return outline

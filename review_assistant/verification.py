@@ -8,10 +8,10 @@ import json
 import re
 import threading
 from pathlib import Path
-from utils import file_sha256, chunk_text
-from errors import LLMCallError, PDFExtractionError
-import llm_client
-from prompts import (
+from .utils import file_sha256, chunk_text
+from .errors import LLMCallError, PDFExtractionError
+from . import llm_client
+from .prompts import (
     STEP1_SYSTEM,
     VERIFY_CITATION_PROMPT,
     VERIFY_LOGIC_PROMPT,
@@ -20,9 +20,9 @@ from prompts import (
     STEP6_FIX_PROMPT
 )
 
-from extraction import prepare_pdf_text, build_extraction_prompt
-from evidence_pack import normalize_finding_relevance
-from caching import findings_cache_key, FINDINGS_CACHE_VERSION
+from .extraction import prepare_pdf_text, build_extraction_prompt
+from .evidence_pack import normalize_finding_relevance
+from .caching import findings_cache_key, FINDINGS_CACHE_VERSION
 
 
 def verify_findings(all_results: list[dict], papers: list[dict],

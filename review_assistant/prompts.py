@@ -3,7 +3,7 @@
 Prompts used in the explore_synthesize literature review pipeline.
 """
 
-from config import DEFAULT_PRO_MODEL
+from .config import DEFAULT_PRO_MODEL
 
 STEP1_SYSTEM = """你是一位学术研究员。阅读论文全文，判断是否与研究问题相关。
 

@@ -7,7 +7,7 @@ import hashlib
 import json
 import pymupdf
 from pathlib import Path
-from errors import PDFExtractionError
+from .errors import PDFExtractionError
 
 
 def extract_pdf_text(pdf_path: Path) -> str:
