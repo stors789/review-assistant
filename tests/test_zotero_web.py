@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "scripts" / "zotero_web.py"
+MODULE_PATH = ROOT / "review_assistant" / "zotero_web.py"
 
 spec = importlib.util.spec_from_file_location("zotero_web", MODULE_PATH)
 zotero_web = importlib.util.module_from_spec(spec)

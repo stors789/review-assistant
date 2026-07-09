@@ -3,12 +3,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# Add scripts directory to sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import claim_verify
+# Add review_assistant package root to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from review_assistant import claim_verify
 
 class ClaimVerifyTests(unittest.TestCase):
-    @patch("claim_verify.llm_client")
+    @patch("review_assistant.claim_verify.llm_client")
     def test_decompose_claims(self, mock_llm):
         mock_llm.call_json.return_value = {"claims": ["Claim 1", "Claim 2"]}
         mock_client = MagicMock()
@@ -23,7 +23,7 @@ class ClaimVerifyTests(unittest.TestCase):
             2048
         )
 
-    @patch("claim_verify.llm_client")
+    @patch("review_assistant.claim_verify.llm_client")
     def test_match_papers(self, mock_llm):
         mock_llm.call_json.return_value = {"relevant_indices": [0]}
         mock_client = MagicMock()
@@ -36,7 +36,7 @@ class ClaimVerifyTests(unittest.TestCase):
         self.assertEqual(matches, [0])
         mock_llm.call_json.assert_called_once()
 
-    @patch("claim_verify.llm_client")
+    @patch("review_assistant.claim_verify.llm_client")
     def test_verify_claim(self, mock_llm):
         mock_llm.call_json.return_value = {"support": "完全支持", "evidence_cn": "摘录证据", "reasoning": "分析"}
         mock_client = MagicMock()

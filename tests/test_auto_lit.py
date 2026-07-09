@@ -1,4 +1,3 @@
-import importlib.util
 import sys
 import types
 import unittest
@@ -6,13 +5,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "scripts" / "auto_lit.py"
+sys.path.insert(0, str(ROOT))
 
-sys.modules.setdefault("zotero_reader", types.SimpleNamespace(ZoteroReader=object))
+sys.modules.setdefault("review_assistant.zotero_reader", types.SimpleNamespace(ZoteroReader=object))
 
-spec = importlib.util.spec_from_file_location("auto_lit", MODULE_PATH)
-auto_lit = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(auto_lit)
+from review_assistant import auto_lit
 
 
 class AutoLitScreenTests(unittest.TestCase):

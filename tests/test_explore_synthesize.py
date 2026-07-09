@@ -1,4 +1,3 @@
-import importlib.util
 import sys
 import time
 import types
@@ -8,15 +7,13 @@ from tempfile import TemporaryDirectory
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "scripts" / "explore_synthesize.py"
+sys.path.insert(0, str(ROOT))
 
 sys.modules.setdefault("pymupdf", types.SimpleNamespace(open=lambda *args, **kwargs: None))
 sys.modules.setdefault("openai", types.SimpleNamespace(OpenAI=object))
-sys.modules.setdefault("zotero_reader", types.SimpleNamespace(ZoteroReader=object))
+sys.modules.setdefault("review_assistant.zotero_reader", types.SimpleNamespace(ZoteroReader=object))
 
-spec = importlib.util.spec_from_file_location("explore_synthesize", MODULE_PATH)
-explore = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(explore)
+from review_assistant import explore_synthesize as explore
 
 
 class ExploreSynthesizeTests(unittest.TestCase):
@@ -183,7 +180,7 @@ class ExploreSynthesizeTests(unittest.TestCase):
             explore.call_json = original_call_json
 
     def test_cosine_similarity_correctness(self):
-        from evidence_pack import cosine_similarity
+        from review_assistant.evidence_pack import cosine_similarity
         v1 = [1.0, 0.0, 0.0]
         v2 = [0.0, 1.0, 0.0]
         v3 = [1.0, 1.0, 0.0]
@@ -195,8 +192,8 @@ class ExploreSynthesizeTests(unittest.TestCase):
         self.assertAlmostEqual(cosine_similarity(v1, v3), 1.0 / (2.0 ** 0.5))
 
     def test_embeddings_caching_and_hybrid_scoring(self):
-        from evidence_pack import build_evidence_pack
-        import llm_client
+        from review_assistant.evidence_pack import build_evidence_pack
+        from review_assistant import llm_client
         
         # Mock embedding calls
         original_get_emb = llm_client.get_embedding
@@ -245,4 +242,3 @@ class ExploreSynthesizeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

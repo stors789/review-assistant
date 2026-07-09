@@ -7,9 +7,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
-# Add scripts directory to sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import paper_breakdown
+# Add review_assistant package root to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from review_assistant import paper_breakdown
 
 class PaperBreakdownTests(unittest.TestCase):
     def test_breakdown_paper(self):
@@ -25,8 +25,8 @@ class PaperBreakdownTests(unittest.TestCase):
         self.assertEqual(res["year"], "2026")
         mock_client.chat.completions.create.assert_called_once()
 
-    @patch("paper_breakdown.llm_client.get_client")
-    @patch("paper_breakdown.extract_text")
+    @patch("review_assistant.paper_breakdown.llm_client.get_client")
+    @patch("review_assistant.paper_breakdown.extract_text")
     def test_process_pdfs_writes_json_and_summary_csv(self, mock_extract, mock_get_client):
         # Setup mocks
         mock_extract.return_value = "extracted text contents"
@@ -55,7 +55,7 @@ class PaperBreakdownTests(unittest.TestCase):
                     raise Exception("API Error")
                 return {"original_title": "Paper Title", "year": "2026", "authors": "John Smith"}
             
-            with patch("paper_breakdown.breakdown_paper", side_effect=side_effect):
+            with patch("review_assistant.paper_breakdown.breakdown_paper", side_effect=side_effect):
                 paper_breakdown.process_pdfs(
                     pdf_paths=[pdf1, pdf2],
                     output_dir=tmp_dir / "out",

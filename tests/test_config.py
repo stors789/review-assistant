@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "scripts" / "config.py"
+MODULE_PATH = ROOT / "review_assistant" / "config.py"
 
 spec = importlib.util.spec_from_file_location("config", MODULE_PATH)
 config = importlib.util.module_from_spec(spec)

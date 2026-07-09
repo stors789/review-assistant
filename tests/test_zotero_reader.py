@@ -5,11 +5,11 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-# Add scripts directory to sys.path to import zotero_reader
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-if "zotero_reader" in sys.modules:
-    del sys.modules["zotero_reader"]
-from zotero_reader import ZoteroReader
+# Add review_assistant package root to sys.path to import zotero_reader
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# Clear any mock that other test modules may have set
+sys.modules.pop("review_assistant.zotero_reader", None)
+from review_assistant.zotero_reader import ZoteroReader
 
 class ZoteroReaderTests(unittest.TestCase):
     def setUp(self):
@@ -205,4 +205,3 @@ class ZoteroReaderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
