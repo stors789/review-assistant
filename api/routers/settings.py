@@ -6,8 +6,8 @@ import os
 router = APIRouter()
 ENV_FILE = "/Users/eros/Documents/api.env"
 
-# Regex to match export statements: export KEY="VALUE" or KEY=VALUE
-ENV_LINE_REGEX = re.compile(r'^\s*(?:export\s+)?([A-Za-z0-9_]+)=([\'"]?)(.*?)\2\s*$')
+# Regex to match export statements: export KEY="VALUE" or KEY=VALUE, optionally followed by comments
+ENV_LINE_REGEX = re.compile(r'^\s*(?:export\s+)?([A-Za-z0-9_]+)=([\'"]?)(.*?)\2(\s+#.*)?\s*$')
 
 def parse_env_file() -> dict:
     if not os.path.exists(ENV_FILE):
@@ -49,11 +49,13 @@ def update_settings(payload: SettingsUpdate):
             match = ENV_LINE_REGEX.match(line)
             if match:
                 key = match.group(1)
+                quote = match.group(2) or '"'
+                trailing_comment = match.group(4) or ''
                 if key in new_settings:
                     # Update line
                     is_export = "export " if "export " in line else ""
                     new_val = new_settings[key]
-                    new_lines.append(f'{is_export}{key}="{new_val}"\n')
+                    new_lines.append(f'{is_export}{key}={quote}{new_val}{quote}{trailing_comment}\n')
                     updated_keys.add(key)
                 else:
                     new_lines.append(line)
