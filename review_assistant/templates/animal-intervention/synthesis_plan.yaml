@@ -1,0 +1,3 @@
+schema_version: "1.0"
+sections: []
+settings: {evidence_batch_size: 25, require_contradiction_handling: true}

@@ -1,0 +1,14 @@
+schema_version: "1.0"
+fields:
+  study.design: {type: string, required: true, missing_value: not_reported, description: Study design, evidence_requirement: quote}
+  population.model: {type: string, required: true, missing_value: not_reported, description: Experimental population or model, evidence_requirement: quote}
+  intervention.summary: {type: string, required: true, missing_value: not_reported, description: Intervention summary, evidence_requirement: quote}
+  outcomes:
+    type: list
+    required: true
+    item_schema:
+      domain: {type: string, required: true}
+      direction: {type: enum, values: [increase, decrease, no_change, mixed, unclear], required: true}
+      evidence_quote: {type: string, required: true}
+matrix: {columns: [publication_id, study_id, study.design, population.model, intervention.summary, outcome_domains, evidence_direction, quote_validation_status]}
+contradiction_analysis: {claim_dimensions: [outcome.domain, population.model, intervention.summary], moderator_candidates: [study.design]}

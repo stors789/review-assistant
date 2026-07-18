@@ -17,6 +17,7 @@ dependencies = [
     "PyMuPDF>=1.24.0",
     "openai>=1.0.0",
     "requests>=2.31.0",
+    "PyYAML>=6.0",
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
 ]
@@ -30,3 +31,6 @@ review-assistant-autolit = "review_assistant.auto_lit:main"
 
 [tool.setuptools]
 packages = ["review_assistant"]
+
+[tool.setuptools.package-data]
+review_assistant = ["templates/**/*.yaml"]

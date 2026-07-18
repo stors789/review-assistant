@@ -1,0 +1,29 @@
+schema_version: "1.0"
+fields:
+  study.design:
+    type: string
+    required: true
+    missing_value: not_reported
+    description: Study design as reported by the publication
+    extraction_instruction: Extract only explicitly reported information
+    evidence_requirement: quote
+  population.summary:
+    type: string
+    required: true
+    missing_value: not_reported
+    description: Population or sample summary
+    evidence_requirement: quote
+  outcomes:
+    type: list
+    required: true
+    missing_value: not_reported
+    item_schema:
+      domain: {type: string, required: true}
+      direction: {type: enum, values: [increase, decrease, no_change, mixed, unclear], required: true}
+      evidence_quote: {type: string, required: true}
+      page: {type: string, required: false}
+matrix:
+  columns: [publication_id, study_id, study.design, population.summary, outcome_domains, evidence_direction, quote_validation_status]
+contradiction_analysis:
+  claim_dimensions: [outcome.domain]
+  moderator_candidates: [study.design]

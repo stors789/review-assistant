@@ -1,0 +1,5 @@
+review: {title: "", type: biomedical-intervention, primary_question: "", secondary_questions: []}
+scope: {populations: [], core_interventions: [], adjacent_interventions: [], comparators: [], primary_outcomes: [], secondary_outcomes: [], include_study_types: [], exclude_study_types: []}
+eligibility: {inclusion_criteria: [], exclusion_criteria: []}
+synthesis: {required_sections: [], required_questions: []}
+screening: {reason_codes: [wrong_population, wrong_exposure_or_intervention, wrong_outcome, wrong_study_type, duplicate, no_full_text, insufficient_data, other]}
