@@ -117,6 +117,8 @@ class StudyExtractionStore:
             label = str(raw.get("label") or f"study-{index + 1}")
             sid = str(raw.get("study_id") or study_id(pub_id, label, index))
             fields = self.schema.apply_missing_values(dict(raw.get("fields", {})))
+            for validation_error in self.schema.validate_values(fields):
+                errors.append({"schema_version": "1.0", "study_id": sid, "error": "schema_validation_failed", **validation_error})
             evidence = self._evidence_map(raw.get("evidence", {}), sid, errors)
             arms = []
             for arm_index, arm in enumerate(raw.get("arms", [])):

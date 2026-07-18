@@ -29,6 +29,14 @@ class ReviewProjectTests(unittest.TestCase):
         self.assertEqual(schema.apply_missing_values({}), {"sample": "not_reported"})
         self.assertEqual(schema.hash, ExtractionSchema.validate({"fields": {"sample": {"missing_value": "not_reported", "required": True, "type": "string"}}}).hash)
 
+    def test_schema_validates_nested_enum_and_numeric_rules(self):
+        schema = ExtractionSchema.validate({"fields": {
+            "level": {"type": "number", "validation_rule": {"min": 0}},
+            "outcomes": {"type": "list", "item_schema": {"direction": {"type": "enum", "values": ["up", "down"], "required": True}}},
+        }})
+        errors = schema.validate_values({"level": -1, "outcomes": [{"direction": "sideways"}, {}]})
+        self.assertEqual({item["error"] for item in errors}, {"below_minimum", "expected_enum", "required"})
+
     def test_protocol_change_is_audited(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = ReviewProject.initialize_review(Path(tmp) / "review")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import re
 
 from .io_utils import load_yaml, stable_hash
 
@@ -90,6 +91,9 @@ class ExtractionSchema:
             raise ConfigurationError(f"enum field {name} requires values")
         if kind == "list" and "item_schema" not in spec:
             raise ConfigurationError(f"list field {name} requires item_schema")
+        if kind == "list" and isinstance(spec.get("item_schema"), dict):
+            for nested_name, nested_spec in spec["item_schema"].items():
+                cls._validate_field(f"{name}.{nested_name}", _mapping(nested_spec, nested_name))
         if kind == "object":
             nested = _mapping(spec.get("fields"), f"field {name}.fields")
             for nested_name, nested_spec in nested.items():
@@ -108,3 +112,44 @@ class ExtractionSchema:
                 elif spec.get("required"):
                     result[path] = spec.get("missing_value", "not_reported")
         return result
+
+    def validate_values(self, values: dict[str, Any]) -> list[dict[str, str]]:
+        errors: list[dict[str, str]] = []
+        for path, spec in self.data["fields"].items():
+            value = values.get(path)
+            missing = spec.get("missing_value", "not_reported")
+            if value is None or value == missing:
+                continue
+            self._validate_value(path, value, spec, errors)
+        return errors
+
+    @classmethod
+    def _validate_value(cls, path: str, value: Any, spec: dict[str, Any], errors: list[dict[str, str]]) -> None:
+        kind = spec["type"]
+        matches = {
+            "string": isinstance(value, str), "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+            "integer": isinstance(value, int) and not isinstance(value, bool), "boolean": isinstance(value, bool),
+            "enum": value in spec.get("values", []), "list": isinstance(value, list), "object": isinstance(value, dict),
+        }[kind]
+        if not matches:
+            errors.append({"field": path, "error": f"expected_{kind}"})
+            return
+        if kind == "list" and isinstance(spec.get("item_schema"), dict):
+            for index, item in enumerate(value):
+                if not isinstance(item, dict):
+                    errors.append({"field": f"{path}[{index}]", "error": "expected_object"})
+                    continue
+                for nested_name, nested_spec in spec["item_schema"].items():
+                    nested_value = item.get(nested_name, nested_spec.get("missing_value", "not_reported"))
+                    if nested_spec.get("required") and nested_name not in item:
+                        errors.append({"field": f"{path}[{index}].{nested_name}", "error": "required"})
+                    elif nested_value != nested_spec.get("missing_value", "not_reported"):
+                        cls._validate_value(f"{path}[{index}].{nested_name}", nested_value, nested_spec, errors)
+        rule = spec.get("validation_rule", {})
+        if isinstance(rule, dict):
+            if "min" in rule and isinstance(value, (int, float)) and value < rule["min"]:
+                errors.append({"field": path, "error": "below_minimum"})
+            if "max" in rule and isinstance(value, (int, float)) and value > rule["max"]:
+                errors.append({"field": path, "error": "above_maximum"})
+            if "pattern" in rule and isinstance(value, str) and re.search(str(rule["pattern"]), value) is None:
+                errors.append({"field": path, "error": "pattern_mismatch"})
