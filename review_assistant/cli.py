@@ -16,7 +16,7 @@ from .review_search import SearchOrchestrator
 from .review_synthesis import synthesize_review
 from .run_state import RunState
 from .screening import ScreeningStore
-from .studies import StudyExtractionStore
+from .studies import StudyExtractionStore, extract_fulltext_documents
 
 STAGES = ["search", "screen", "extract", "matrix", "analyze", "synthesize", "audit"]
 
@@ -57,7 +57,10 @@ def build_parser() -> argparse.ArgumentParser:
     _project_arg(status)
     extract = commands.add_parser("extract")
     _project_arg(extract)
-    extract.add_argument("--input", type=Path, required=True, help="Structured JSON extraction to validate and persist")
+    extraction_source = extract.add_mutually_exclusive_group(required=True)
+    extraction_source.add_argument("--input", type=Path, help="Structured JSON extraction to validate and persist")
+    extraction_source.add_argument("--fulltext-dir", type=Path, help="Extract all PDFs using the configured schema")
+    extract.add_argument("--model", default="deepseek-v4-pro")
     matrix = commands.add_parser("matrix")
     matrix_sub = matrix.add_subparsers(dest="matrix_command", required=True)
     build = matrix_sub.add_parser("build")
@@ -141,9 +144,16 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"count": len(pdfs), "files": [path.name for path in pdfs]}, ensure_ascii=False))
         return 0
     if args.command == "extract":
-        payload = json.loads(args.input.read_text(encoding="utf-8"))
-        StudyExtractionStore(project).ingest(payload)
-        return 0
+        if args.input:
+            payload = json.loads(args.input.read_text(encoding="utf-8"))
+            StudyExtractionStore(project).ingest(payload)
+            return 0
+        pdfs = sorted(args.fulltext_dir.glob("*.pdf"))
+        if not pdfs:
+            raise SystemExit(f"No PDFs found in {args.fulltext_dir}")
+        result = extract_fulltext_documents(project, pdfs, model=args.model)
+        print(json.dumps(result))
+        return 1 if result["failed"] else 0
     if args.command == "matrix":
         EvidenceMatrixBuilder(project).build(args.row_mode)
         return 0

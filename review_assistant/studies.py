@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+import re
 
 from .io_utils import append_jsonl, stable_id
 from .project import ReviewProject
@@ -158,3 +159,74 @@ class StudyExtractionStore:
                 errors.append({"schema_version": "1.0", "study_id": sid, "error": "quote_verification_failed", "quote": quote})
             result.append(EvidenceLocation(quote, str(item.get("page", "")), str(item.get("section", "")), str(item.get("figure", "")), str(item.get("table", "")), status))
         return result
+
+
+def extract_fulltext_documents(
+    project: ReviewProject,
+    pdf_paths: list[Path],
+    *,
+    model: str,
+    extractor: Callable[[str, dict[str, Any], Path], dict[str, Any]] | None = None,
+) -> dict[str, int]:
+    """Extract Review records from PDFs using the external schema and EvidencePack.
+
+    ``extractor`` is injectable for offline tests and alternate providers. The
+    default implementation reuses the shared PDF, EvidencePack, and LLM layers.
+    """
+    from .utils import extract_pdf_text
+
+    store = StudyExtractionStore(project)
+    completed = 0
+    failed = 0
+    for pdf_path in pdf_paths:
+        try:
+            full_text = extract_pdf_text(pdf_path)
+            pack, coverage = build_schema_evidence_pack(full_text, store.schema.data)
+            if extractor is None:
+                payload = _llm_extract_record(pack, store.schema.data, pdf_path, model)
+            else:
+                payload = extractor(pack, store.schema.data, pdf_path)
+            if not isinstance(payload, dict):
+                raise ValueError("extractor must return a JSON object")
+            payload.setdefault("publication", {})
+            payload["publication"].setdefault("title", pdf_path.stem)
+            quote_validator = lambda quote, text=full_text: _quote_in_text(quote, text)
+            StudyExtractionStore(project, quote_validator=quote_validator).ingest(payload)
+            completed += 1
+        except Exception as exc:
+            append_jsonl(project.root / "extraction" / "extraction_errors.jsonl", [{
+                "schema_version": "1.0", "file": str(pdf_path),
+                "error": "document_extraction_failed", "detail": f"{type(exc).__name__}: {exc}",
+            }])
+            failed += 1
+    return {"completed": completed, "failed": failed}
+
+
+def _llm_extract_record(pack: str, schema: dict[str, Any], pdf_path: Path, model: str) -> dict[str, Any]:
+    import json
+    from . import llm_client
+
+    system = (
+        "Extract publication- and study-level evidence strictly from the supplied text. "
+        "Follow the external schema. Never fill absent information from general knowledge; "
+        "use each field's missing_value or not_reported, and use unclear for uncertain directions. "
+        "Every material outcome must include an exact evidence quote and location when reported. "
+        "Return one JSON object with publication and studies; each study may contain fields, arms, outcomes, and evidence."
+    )
+    user = (
+        f"Source file: {pdf_path.name}\n\nExtraction schema:\n"
+        f"{json.dumps(schema, ensure_ascii=False, indent=2, sort_keys=True)}\n\nEvidencePack:\n{pack}"
+    )
+    result = llm_client.call_json(llm_client.get_client(), system, user, model, max_tokens=16384)
+    if not isinstance(result, dict):
+        raise ValueError("LLM extraction response must be an object")
+    return result
+
+
+def _quote_in_text(quote: str, text: str) -> bool:
+    def normalize(value: str) -> str:
+        value = value.replace("ﬁ", "fi").replace("ﬂ", "fl").lower()
+        return re.sub(r"\W+", "", value)
+    normalized_quote = normalize(quote)
+    normalized_text = normalize(text)
+    return bool(normalized_quote and (normalized_quote in normalized_text or normalize(quote[:120]) in normalized_text))

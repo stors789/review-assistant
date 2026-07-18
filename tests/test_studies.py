@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from review_assistant.project import ReviewProject
-from review_assistant.studies import StudyExtractionStore, field_focus_terms, publication_id, study_id
+from review_assistant.studies import StudyExtractionStore, extract_fulltext_documents, field_focus_terms, publication_id, study_id
 
 
 class StudyExtractionTests(unittest.TestCase):
@@ -38,6 +38,25 @@ class StudyExtractionTests(unittest.TestCase):
         terms = field_focus_terms({"fields": {"sample.variable": {"description": "Configured descriptor", "aliases": ["configured alias"], "extraction_instruction": "Find explicit report"}}})
         self.assertIn("Configured descriptor", terms)
         self.assertIn("configured alias", terms)
+
+    def test_fulltext_extraction_uses_injected_schema_driven_extractor(self):
+        pdf = Path(self.tmp.name) / "paper.pdf"
+        pdf.write_bytes(b"placeholder")
+        payload = {"publication": {"title": "P"}, "studies": [{"fields": {}, "outcomes": [{"domain": "x", "direction": "unclear", "evidence": [{"quote": "reported text"}]}]}]}
+        from unittest.mock import patch
+        with patch("review_assistant.utils.extract_pdf_text", return_value="reported text in source"):
+            result = extract_fulltext_documents(self.project, [pdf], model="mock", extractor=lambda pack, schema, path: payload)
+        self.assertEqual(result, {"completed": 1, "failed": 0})
+        self.assertIn("passed", (self.project.root / "extraction" / "outcomes.jsonl").read_text())
+
+    def test_fulltext_failure_is_preserved(self):
+        pdf = Path(self.tmp.name) / "paper.pdf"
+        pdf.write_bytes(b"placeholder")
+        from unittest.mock import patch
+        with patch("review_assistant.utils.extract_pdf_text", side_effect=ValueError("broken")):
+            result = extract_fulltext_documents(self.project, [pdf], model="mock", extractor=lambda *args: {})
+        self.assertEqual(result["failed"], 1)
+        self.assertIn("document_extraction_failed", (self.project.root / "extraction" / "extraction_errors.jsonl").read_text())
 
 
 if __name__ == "__main__":
