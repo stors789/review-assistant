@@ -1,0 +1,22 @@
+review:
+  title: Fictional material-condition review
+  type: generic-structured-review
+  primary_question: How does the configured condition relate to the configured measure in the fictional samples?
+  secondary_questions: []
+scope:
+  populations: [fictional samples]
+  core_interventions: [configured condition]
+  adjacent_interventions: []
+  comparators: [comparison condition]
+  primary_outcomes: [configured measure]
+  secondary_outcomes: []
+  include_study_types: [fictional controlled study]
+  exclude_study_types: []
+eligibility:
+  inclusion_criteria: [Reports the configured measure]
+  exclusion_criteria: []
+synthesis:
+  required_sections: [Evidence overview, Contradictions and limitations]
+  required_questions: ["What directions and limitations were reported?"]
+screening:
+  reason_codes: [wrong_sample, wrong_condition, wrong_measure, wrong_design, duplicate, no_full_text, insufficient_data, other]

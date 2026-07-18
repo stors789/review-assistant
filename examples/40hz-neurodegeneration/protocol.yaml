@@ -1,0 +1,22 @@
+review:
+  title: Example 40 Hz visual flicker evidence review
+  type: animal-intervention
+  primary_question: What outcomes are reported after 40 Hz visual flicker in configured neurodegenerative animal models?
+  secondary_questions: ["Which intervention parameters and model stages were reported?"]
+scope:
+  populations: [configured Alzheimer disease animal models]
+  core_interventions: [40 Hz visual flicker]
+  adjacent_interventions: [multisensory GENUS]
+  comparators: [sham or non-40 Hz condition]
+  primary_outcomes: [amyloid, tau]
+  secondary_outcomes: [behavioral and safety outcomes]
+  include_study_types: [controlled animal intervention]
+  exclude_study_types: [human-only study]
+eligibility:
+  inclusion_criteria: [Reports original outcome data]
+  exclusion_criteria: [Does not isolate an eligible intervention]
+synthesis:
+  required_sections: [Search and study characteristics, Core intervention evidence, Contradictions and heterogeneity, Limitations]
+  required_questions: ["What was measured and under which configured conditions?"]
+screening:
+  reason_codes: [wrong_model, wrong_intervention, wrong_outcome, wrong_study_type, duplicate, no_full_text, insufficient_data, other]

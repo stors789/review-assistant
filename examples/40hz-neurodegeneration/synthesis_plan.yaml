@@ -1,0 +1,7 @@
+schema_version: "1.0"
+sections:
+  - {section_id: S01, title: Search and study characteristics}
+  - {section_id: S02, title: Core intervention evidence, required_qualifiers: [separate core and adjacent interventions]}
+  - {section_id: S03, title: Contradictions and heterogeneity}
+  - {section_id: S04, title: Limitations}
+settings: {evidence_batch_size: 10, require_contradiction_handling: true}

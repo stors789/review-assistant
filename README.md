@@ -4,17 +4,20 @@
 
 ## About
 
-Review Assistant is a Codex/OpenCode skill for literature-review workflows built around Zotero collections, local PDFs, and LLM-assisted synthesis.
+Review Assistant is a Codex/OpenCode skill and local web app for literature-review workflows built around Zotero collections, local PDFs, and LLM-assisted synthesis.
 
-It helps you move from a folder of papers to structured notes, claim verification, review reports, narrative articles, summary tables, and follow-up literature searches. The tool is designed for research workflows where source grounding matters: it reads local PDFs, extracts evidence with citations, verifies quotes against source text, and flags logical or citation issues before producing final outputs.
+It helps you move from a folder of papers to structured notes, claim verification, review reports, narrative articles, summary tables, and follow-up literature searches. The tool is designed for research workflows where source grounding matters: it reads local PDFs, extracts evidence with citations, verifies quotes against source text, and flags logical or citation issues before producing final outputs. Most workflows can be run from the CLI or from the React/FastAPI desktop web interface.
 
 ## What It Does
+
+Review Assistant supports both the existing exploratory narrative workflow and a protocol-driven, auditable Review workflow. See [Protocol-driven Review mode](./docs/review-mode.md) for configuration, CLI commands, offline tutorial, artifacts, and migration guidance.
 
 - **能力A · 文献拆解**: Decompose PDFs into structured paper notes.
 - **能力B · 主张验证**: Verify claims in a paragraph against papers in a Zotero collection.
 - **能力C · 数据库查询**: Browse Zotero collections and check local PDF coverage.
 - **能力D · 探索总结**: Explore a research question across a paper set and synthesize a report.
 - **能力E · 文献检索入库**: Search Semantic Scholar for literature and import through Zotero Web API or RIS fallback.
+- **Web UI**: Browse Zotero, run verification/breakdown/synthesis tasks, and manage settings from a local desktop-oriented UI.
 
 ## Core Workflows
 
@@ -112,8 +115,13 @@ python -m review_assistant.explore_synthesize "Collection > Subcollection" -q "Y
 | `-w` / `--workers` | Concurrent workers | `5` |
 | `--skip-step1` | Skip extraction, reuse cached findings | — |
 | `--skip-verify` | Skip all verification steps | — |
+| `--full-prefix` | Use the legacy first-80000-characters input mode instead of EvidencePack | off |
+| `--ai-rerank-chunks` | Let an LLM rerank EvidencePack candidate chunks when recall confidence is low | off |
 | `--vector-search` | Enable hybrid vector + keyword chunk retrieval | off |
 | `--max-papers` | Max papers to process (0 = unlimited) | `0` |
+| `--stop-after` | Stop after `step1`, `ver1`, `step2`, `step3`, or `step4` for debugging | — |
+| `--step7-model` | Model for summary table and diagram generation | `REVIEW_ASSISTANT_STEP7_MODEL` |
+| `--input` / `-i` | Process PDFs from a local folder instead of Zotero | — |
 
 See [Full Synthesis Pipeline](#full-synthesis-pipeline) below for the detailed step-by-step flow.
 
@@ -165,11 +173,11 @@ Extract  Quote   Outline  Match+Write  Integrate  Verify     Fix     Article  Ta
 
 | Step | Description | Design Notes |
 |---|---|---|
-| **Step1** | Extract findings from each PDF: claim_cn, quote, cite_key, and dynamic tags. Irrelevant papers are skipped. | temperature=0 for determinism; PDF text + API results are double-cached; same question reuses cache |
+| **Step1** | Extract findings from each PDF: claim_cn, quote, cite_key, relation/context/variables, and dynamic tags. Irrelevant papers are skipped. | Uses EvidencePack by default: section-aware chunks, keyword windows, front/tail context, optional vector search and optional AI reranking; PDF text + API results are double-cached |
 | **Ver1** | Verify each quote against source text (exact/fuzzy match). Retry extraction up to 2 rounds on failure. | Local matching, no API cost |
 | **Step2** | LLM reviews all findings and generates a report outline with search_tags on leaf nodes. | Groups by population dimensions specified in the research question |
-| **Step3** | Phase A: match 3-8 findings per section via tag semantics. Phase B: write each section in parallel. | Unmatched findings are dropped (favor precision); each section input stays under a few hundred chars |
-| **Step4** | Merge sections, polish style, generate references, flag cross-section contradictions. | Orphan references (not cited in body) are auto-removed |
+| **Step3** | Phase A: match up to 8 findings per section via relation/context/variables/tag semantics. Phase B: write each section in parallel. | Prefers direct findings; falls back to indirect/background only when needed; citations are locally sanitized against matched refs |
+| **Step4** | Merge sections, polish style, generate references, flag cross-section contradictions. | Orphan references are auto-removed based on body citations; grouped citations like `[1, 2]` and ranges like `[1-3]` are supported |
 | **Ver A** | Verify citation metadata: year, author names, core concept entities against findings index. | Uses reasoning model with 65536 tokens |
 | **Ver B** | Check cross-section contradictions, conclusion leaps, and unsupported assertions. | Same reasoning model |
 | **Step6** | Apply factual and logical fixes based on verification feedback. Remove irrelevant sections. | temperature=0, no meta-commentary |
@@ -210,14 +218,14 @@ paper_breakdown_output/
 
 ## Scripts
 
-| Script | Purpose |
+| Module Entry Point | Purpose |
 |---|---|
-| `scripts/zotero_read.py` | Browse Zotero collections, item metadata, and PDF coverage. |
-| `scripts/zotero_reader.py` | Read-only Zotero SQLite helper used by other scripts. |
-| `scripts/paper_breakdown.py` | Batch PDF-to-structured-note extraction. |
-| `scripts/claim_verify.py` | Claim decomposition and source verification against a paper set. |
-| `scripts/explore_synthesize.py` | End-to-end research-question synthesis pipeline. |
-| `scripts/auto_lit.py` | Semantic Scholar/PubMed search to Zotero Web API import or RIS fallback. |
+| `python -m review_assistant.zotero_read` | Browse Zotero collections, item metadata, and PDF coverage. |
+| `review_assistant.zotero_reader.ZoteroReader` | Read-only Zotero SQLite helper used by other modules. |
+| `python -m review_assistant.paper_breakdown` | Batch PDF-to-structured-note extraction. |
+| `python -m review_assistant.claim_verify` | Claim decomposition and source verification against a paper set. |
+| `python -m review_assistant.explore_synthesize` | End-to-end research-question synthesis pipeline. |
+| `python -m review_assistant.auto_lit` | Semantic Scholar/PubMed search to Zotero Web API import or RIS fallback. |
 
 ## Environment Variables
 
@@ -287,11 +295,45 @@ Or source an env file: `source ~/Documents/api.env`
 
 See [Environment Variables](#environment-variables) for the full list.
 
+## Web UI
+
+The web interface is intended for desktop use. It consists of a FastAPI backend and a Vite/React frontend.
+
+Start the API server:
+
+```bash
+python -m uvicorn api.main:app --host 127.0.0.1 --port 8000
+```
+
+Start the frontend in a second terminal:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open <http://127.0.0.1:5173>. In development, Vite proxies `/api/*` requests to `http://localhost:8000` by default. Override this with `VITE_API_URL` if needed.
+
+Build the production frontend:
+
+```bash
+cd web
+npm run build
+```
+
+The FastAPI app serves `web/dist` when the frontend has been built.
+
 ## Testing
 
 ```bash
-python -m unittest discover -s tests -v
+pytest -q
+python -m compileall -q review_assistant tests
+cd web && npm run build
+cd web && npm run lint
 ```
+
+For browser-level desktop smoke testing, start both servers and verify the main routes (`/`, `/verify`, `/breakdown`, `/synthesize`, `/settings`) with Playwright or another browser automation tool. The expected desktop checks are: route title matches, active navigation item matches, no horizontal overflow, and no application console errors when the backend is running.
 
 ## Design Notes
 
@@ -302,13 +344,16 @@ python -m unittest discover -s tests -v
 - Analytical extraction uses deterministic model settings (temperature=0) wherever practical.
 - The synthesis pipeline favors grounded findings over broad, unsupported narrative generation.
 - Multi-key rotation: synthesis auto-detects `DEEPSEEK_API_KEY_2`, `_3`, `_4`... to bypass single-key rate limits.
-- Orphan references are auto-cleaned: only references cited in the body text via `[N]` appear in the final bibliography.
+- API compatibility fallback: OpenAI-compatible providers sometimes disagree on `reasoning_effort`, `thinking`, `temperature`, `max_tokens`, and `max_completion_tokens`; the LLM wrapper retries once with compatible parameters when those errors occur.
+- JSON parsing accepts both top-level objects and arrays, including fenced JSON blocks, so verifier prompts that return `[]` do not fail.
+- Orphan references are auto-cleaned: only references cited in the body text via `[N]`, `[N, M]`, or `[N-M]` appear in the final bibliography.
+- The React UI renders only the active route, avoiding hidden-page API calls and stale hidden state.
 
 ## Generality & Portability
 
 - **Customizable Screening Rules**: Define keywords, weights (including negative values for exclusion), and categorization tiers in a JSON config file via `--screen-rules`. Falls back to built-in default rules when no file is specified.
 - **Cross-Platform Zotero Paths**: Windows drive letters (`C:\...`) and linked-file attachments are resolved on macOS/Linux via `ZOTERO_LINKED_BASE_DIR` and `ZOTERO_LINKED_PREFIX_MAP`.
-- **Multi-LLM Compatibility**: The backend detects model families (DeepSeek, OpenAI, Ollama/LM Studio) and auto-strips incompatible parameters (e.g., DeepSeek `thinking` on standard models) on 400 errors, enabling zero-config model swaps.
+- **Multi-LLM Compatibility**: The backend detects model families and retries with provider-compatible chat parameters when OpenAI-compatible APIs reject reasoning, thinking, temperature, or token-limit fields.
 
 ## Limitations
 
@@ -329,7 +374,7 @@ python -m unittest discover -s tests -v
 | API 429 Too Many Requests | Rate limit hit | Reduce `-w` concurrency; shorten SS query to ≤5 words |
 | SS search 429 | Semantic Scholar rate limit | Shorten query to ≤5 words, wait 1-2 hours |
 | `Insufficient Balance` | DeepSeek API balance exhausted | Top up, then re-run failed steps |
-| JSON parse failure on breakdown | LLM did not output valid JSON | Re-run single paper or switch model with `-m deepseek-reasoner` |
+| JSON parse failure on breakdown | LLM did not output valid JSON | Re-run single paper or switch model; JSON objects and arrays are both supported, but malformed text still fails |
 | `API returned empty response` | Reasoning tokens crowded out output | Fixed: verification uses 65536 tokens |
 | All results `~无数据` | Papers not relevant to question | Use a more specific question, or search for relevant literature first |
 | Same paper re-processing repeatedly | Cache version changed or PDF content changed | Normal behavior; let it complete and re-cache |
@@ -337,6 +382,8 @@ python -m unittest discover -s tests -v
 | Linked attachment not found | Path mismatch between systems | Set `ZOTERO_LINKED_BASE_DIR` or `ZOTERO_LINKED_PREFIX_MAP` |
 | Same-named PDFs cause citation mix-up | Two papers both named `fulltext.pdf` | Fixed: now uses full path to disambiguate |
 | Reference numbers don't match in report | Orphan references auto-cleaned in Step 4 | Only references actually cited in body appear in bibliography |
+| Web UI shows API 502 in dev | Vite is running without the FastAPI backend | Start `python -m uvicorn api.main:app --host 127.0.0.1 --port 8000` |
+| Settings page says failed to load settings | Backend unavailable or settings endpoint failed | Check the API server logs and `/api/health` |
 
 ## Repository Structure
 
@@ -346,11 +393,12 @@ python -m unittest discover -s tests -v
 ├── README.md                  # User-facing project documentation
 ├── GUIDE.zh-CN.md             # 中文人话指南
 ├── CHANGELOG.md               # Release changelog
-├── TODO.md                    # Development roadmap
 ├── requirements.txt
 ├── pyproject.toml
-├── scripts/
-├── specs/
-├── tests/
+├── api/                       # FastAPI backend
+├── review_assistant/          # Python package and CLI modules
+├── tests/                     # Python regression tests
+├── web/                       # Vite/React frontend
+├── docs/                      # Design notes and archived specs
 └── evals/
 ```

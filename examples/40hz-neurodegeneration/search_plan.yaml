@@ -1,0 +1,5 @@
+searches:
+  - {id: primary_pubmed, source: pubmed, query: "40 Hz visual flicker Alzheimer animal", enabled: true}
+  - {id: supplementary_semantic_scholar, source: semantic_scholar, query: "40 Hz GENUS amyloid tau", enabled: true}
+seed_records: []
+citation_chasing: {backward: false, forward: false}
