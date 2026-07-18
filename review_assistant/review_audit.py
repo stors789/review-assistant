@@ -78,7 +78,8 @@ class ReviewAuditor:
                 continue
             group_ids = set(group.get("study_ids", []))
             for claim in claims:
-                if group_ids & set(claim.get("supporting_studies", [])) and not group_ids & set(claim.get("contradicting_studies", [])):
+                accounted = set(claim.get("supporting_studies", [])) | set(claim.get("contradicting_studies", []))
+                if group_ids & accounted and not group_ids.issubset(accounted):
                     issues.append(_issue("contradiction_omission", "Claim omits known directionally inconsistent evidence", claim_id=claim.get("claim_id"), group_id=group.get("group_id")))
 
         report_path = self.project.root / "synthesis" / "review_draft.md"

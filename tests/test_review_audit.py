@@ -32,7 +32,8 @@ class ReviewAuditTests(unittest.TestCase):
         summary = ReviewAuditor(self.project).run()
         self.assertTrue((self.project.root / "audit" / "audit_summary.json").exists())
         self.assertTrue((self.project.root / "audit" / "citation_audit.md").exists())
-        self.assertIn(summary["status"], {"passed", "failed"})
+        self.assertNotIn("missing_citation", summary["counts"])
+        self.assertNotIn("contradiction_omission", summary["counts"])
 
     def test_unsupported_scope_duplicate_extrapolation_and_unresolved(self):
         path = self.project.root / "synthesis" / "claim_map.json"

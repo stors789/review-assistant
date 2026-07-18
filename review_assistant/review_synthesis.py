@@ -113,7 +113,8 @@ def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, 
         values = section_spec.get(field, [])
         if values:
             direction_labels.append(f"{label}: {', '.join(values)}")
-    return f"Evidence from {len(ids)} eligible studies was synthesized ({'; '.join(direction_labels) or 'direction unclear'}). " + " ".join(f"[{sid}]" for sid in ids)
+    citations = " ".join(f"[{sid}]" for sid in ids)
+    return f"Evidence from {len(ids)} eligible studies was synthesized ({'; '.join(direction_labels) or 'direction unclear'}) {citations}."
 
 
 def synthesize_review(project: ReviewProject, writer: Callable[..., str] | None = None) -> str:
@@ -157,8 +158,9 @@ def build_claim_map(project: ReviewProject, report: str, plan: dict[str, Any] | 
             if not sentence or sentence.startswith("#") or sentence.startswith("Protocol hash:"):
                 continue
             cited = sorted(set(re.findall(r"\[([^\[\]]*study_[0-9a-f]{16})\]", sentence)) & valid_studies)
+            relevant_inconsistency = any(set(cited) & set(group.get("study_ids", [])) and group.get("has_directional_inconsistency") for group in contradiction_groups)
             contradicting = sorted({sid for group in contradiction_groups if set(cited) & set(group.get("study_ids", [])) and group.get("has_directional_inconsistency") for sid in group.get("study_ids", []) if sid not in cited})
-            support = "unsupported" if not cited else ("mixed" if contradicting else "supported")
+            support = "unsupported" if not cited else ("mixed" if relevant_inconsistency else "supported")
             claims.append({
                 "claim_id": stable_id("claim", current_section, sentence), "section_id": current_section,
                 "sentence": sentence, "supporting_studies": cited, "contradicting_studies": contradicting,
