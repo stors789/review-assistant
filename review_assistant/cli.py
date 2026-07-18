@@ -112,12 +112,13 @@ def default_search_runners() -> dict[str, Callable[[str, int], list[dict[str, An
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.mode == "explore":
-        if args.command == "audit":
-            raise SystemExit("Explore audit remains part of explore run; pass existing synthesis arguments")
         from . import explore_synthesize
+        delegated_args = list(args.args)
+        if args.command == "audit" and "--skip-step1" not in delegated_args:
+            delegated_args.append("--skip-step1")
         original = sys.argv
         try:
-            sys.argv = ["review-assistant explore run", *args.args]
+            sys.argv = [f"review-assistant explore {args.command}", *delegated_args]
             explore_synthesize.main()
         finally:
             sys.argv = original

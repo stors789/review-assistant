@@ -1,4 +1,5 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -61,6 +62,14 @@ class ReviewCliTests(unittest.TestCase):
         self.assertEqual(main(["review", "bootstrap", "--from-explore", str(explore), "--output", str(output)]), 0)
         candidate = load_yaml(output / "bootstrap_candidates.yaml")
         self.assertEqual(candidate["confirmation_status"], "unconfirmed")
+
+    @patch("review_assistant.explore_synthesize.main")
+    def test_explore_audit_reuses_existing_pipeline_and_findings(self, mocked_main):
+        delegated = []
+        mocked_main.side_effect = lambda: delegated.extend(sys.argv)
+        self.assertEqual(main(["explore", "audit", "Collection", "-q", "question"]), 0)
+        mocked_main.assert_called_once_with()
+        self.assertIn("--skip-step1", delegated)
 
 
 if __name__ == "__main__":
