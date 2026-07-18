@@ -1,0 +1,212 @@
+"""Unified Explore/Review command-line interface."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any, Callable
+
+from .bootstrap import bootstrap_from_explore
+from .project import ReviewProject, discover_templates
+from .review_audit import ReviewAuditor
+from .review_evidence import ContradictionAnalyzer, EvidenceMatrixBuilder
+from .review_search import SearchOrchestrator
+from .review_synthesis import synthesize_review
+from .run_state import RunState
+from .screening import ScreeningStore
+from .studies import StudyExtractionStore
+
+STAGES = ["search", "screen", "extract", "matrix", "analyze", "synthesize", "audit"]
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="review-assistant")
+    modes = parser.add_subparsers(dest="mode", required=True)
+    explore = modes.add_parser("explore", help="Exploratory narrative synthesis")
+    explore_sub = explore.add_subparsers(dest="command", required=True)
+    for command in ("run", "audit"):
+        child = explore_sub.add_parser(command)
+        child.add_argument("args", nargs=argparse.REMAINDER)
+
+    review = modes.add_parser("review", help="Protocol-driven formal evidence synthesis")
+    commands = review.add_subparsers(dest="command", required=True)
+    init = commands.add_parser("init")
+    init.add_argument("path", type=Path)
+    init.add_argument("--template", choices=discover_templates(), default="generic-structured-review")
+    bootstrap = commands.add_parser("bootstrap")
+    bootstrap.add_argument("--from-explore", type=Path, required=True)
+    bootstrap.add_argument("--output", type=Path, required=True)
+    bootstrap.add_argument("--template", choices=discover_templates(), default="generic-structured-review")
+    search = commands.add_parser("search")
+    _project_arg(search)
+    search.add_argument("--search-id")
+    search.add_argument("--limit", type=int, default=100)
+    screen = commands.add_parser("screen")
+    screen_sub = screen.add_subparsers(dest="screen_command", required=True)
+    screen_import = screen_sub.add_parser("import")
+    _project_arg(screen_import)
+    screen_import.add_argument("csv", type=Path)
+    screen_import.add_argument("--map", action="append", default=[], metavar="TARGET=SOURCE")
+    screen_import.add_argument("--stage", choices=["title_abstract", "fulltext"])
+    screen_import.add_argument("--reviewer", default="import")
+    fulltext = commands.add_parser("fulltext")
+    fulltext_sub = fulltext.add_subparsers(dest="fulltext_command", required=True)
+    status = fulltext_sub.add_parser("status")
+    _project_arg(status)
+    extract = commands.add_parser("extract")
+    _project_arg(extract)
+    extract.add_argument("--input", type=Path, required=True, help="Structured JSON extraction to validate and persist")
+    matrix = commands.add_parser("matrix")
+    matrix_sub = matrix.add_subparsers(dest="matrix_command", required=True)
+    build = matrix_sub.add_parser("build")
+    _project_arg(build)
+    build.add_argument("--row-mode", choices=["study", "study_comparison"], default="study")
+    evidence = commands.add_parser("evidence")
+    evidence_sub = evidence.add_subparsers(dest="evidence_command", required=True)
+    analyze = evidence_sub.add_parser("analyze")
+    _project_arg(analyze)
+    synthesize = commands.add_parser("synthesize")
+    _project_arg(synthesize)
+    audit = commands.add_parser("audit")
+    _project_arg(audit)
+    audit.add_argument("--strict", action="store_true")
+    run = commands.add_parser("run")
+    _project_arg(run)
+    run.add_argument("--from-stage", choices=STAGES)
+    run.add_argument("--to-stage", choices=STAGES)
+    run.add_argument("--resume", action="store_true")
+    run.add_argument("--force", action="store_true")
+    run.add_argument("--dry-run", action="store_true")
+    run.add_argument("--strict", action="store_true")
+    run.add_argument("--config", type=Path)
+    return parser
+
+
+def _project_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--project", type=Path, required=True)
+
+
+def _mapping(values: list[str]) -> dict[str, str]:
+    result = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError(f"Invalid mapping {value!r}; expected TARGET=SOURCE")
+        target, source = value.split("=", 1)
+        result[target] = source
+    return result
+
+
+def default_search_runners() -> dict[str, Callable[[str, int], list[dict[str, Any]]]]:
+    from .auto_lit import _search_pubmed, _search_ss
+    return {
+        "pubmed": lambda query, limit: _search_pubmed(query, limit),
+        "semantic_scholar": lambda query, limit: _search_ss(query, limit),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.mode == "explore":
+        if args.command == "audit":
+            raise SystemExit("Explore audit remains part of explore run; pass existing synthesis arguments")
+        from . import explore_synthesize
+        original = sys.argv
+        try:
+            sys.argv = ["review-assistant explore run", *args.args]
+            explore_synthesize.main()
+        finally:
+            sys.argv = original
+        return 0
+    if args.command == "init":
+        project = ReviewProject.initialize_review(args.path, args.template)
+        print(project.root)
+        return 0
+    if args.command == "bootstrap":
+        project = bootstrap_from_explore(args.from_explore, args.output, args.template)
+        print(project.root / "bootstrap_candidates.yaml")
+        return 0
+    project = ReviewProject.load(args.project)
+    project.validate()
+    if args.command == "search":
+        result = SearchOrchestrator(project, default_search_runners()).run(args.search_id, args.limit)
+        return 1 if result.failures else 0
+    if args.command == "screen":
+        count = ScreeningStore(project).import_csv(args.csv, _mapping(args.map), default_stage=args.stage, default_reviewer=args.reviewer)
+        print(f"Imported {count} decisions")
+        return 0
+    if args.command == "fulltext":
+        pdfs = sorted((project.root / "fulltext").glob("*.pdf"))
+        print(json.dumps({"count": len(pdfs), "files": [path.name for path in pdfs]}, ensure_ascii=False))
+        return 0
+    if args.command == "extract":
+        payload = json.loads(args.input.read_text(encoding="utf-8"))
+        StudyExtractionStore(project).ingest(payload)
+        return 0
+    if args.command == "matrix":
+        EvidenceMatrixBuilder(project).build(args.row_mode)
+        return 0
+    if args.command == "evidence":
+        ContradictionAnalyzer(project).analyze()
+        return 0
+    if args.command == "synthesize":
+        synthesize_review(project)
+        return 0
+    if args.command == "audit":
+        summary = ReviewAuditor(project).run()
+        return 2 if args.strict and summary["status"] == "failed" else 0
+    if args.command == "run":
+        return run_pipeline(project, args)
+    return 0
+
+
+def run_pipeline(project: ReviewProject, args: argparse.Namespace) -> int:
+    start = STAGES.index(args.from_stage) if args.from_stage else 0
+    end = STAGES.index(args.to_stage) + 1 if args.to_stage else len(STAGES)
+    stages = STAGES[start:end]
+    if args.dry_run:
+        print(json.dumps({"project": str(project.root), "stages": stages, "protocol_hash": project.protocol.hash}, indent=2))
+        return 0
+    if args.config and not args.config.exists():
+        print(f"Run config does not exist: {args.config}", file=sys.stderr)
+        return 1
+    try:
+        state = RunState.resume_latest(project) if args.resume else RunState.start(project)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    actions = {
+        "search": lambda: (SearchOrchestrator(project, default_search_runners()).run(), ["search/search_log.jsonl", "search/deduplicated_records.jsonl"]),
+        "screen": lambda: (_require(project.root / "screening" / "decision_history.jsonl", "Import screening decisions with `review-assistant review screen import`"), ["screening/decision_history.jsonl", "screening/prisma_counts.json"]),
+        "extract": lambda: (_require(project.root / "extraction" / "studies.jsonl", "Run `review-assistant review extract --input ...` after full-text screening"), ["extraction/publications.jsonl", "extraction/studies.jsonl", "extraction/outcomes.jsonl"]),
+        "matrix": lambda: (EvidenceMatrixBuilder(project).build(), ["evidence/evidence_matrix.csv", "evidence/evidence_matrix.json"]),
+        "analyze": lambda: (ContradictionAnalyzer(project).analyze(), ["evidence/contradiction_groups.json", "evidence/heterogeneity_report.md"]),
+        "synthesize": lambda: (synthesize_review(project), ["synthesis/review_draft.md", "synthesis/claim_map.json"]),
+        "audit": lambda: (ReviewAuditor(project).run(), ["audit/audit_summary.json"]),
+    }
+    try:
+        for stage in stages:
+            if args.resume and not args.force and state.stages.get(stage, {}).get("status") == "completed":
+                continue
+            state.begin_stage(stage)
+            _, outputs = actions[stage]()
+            state.finish_stage(stage, outputs)
+        state.finish()
+    except Exception as exc:
+        state.fail_stage(stage, exc)
+        print(f"Stage {stage} failed: {exc}", file=sys.stderr)
+        return 1
+    if args.strict and "audit" in stages:
+        summary = json.loads((project.root / "audit" / "audit_summary.json").read_text())
+        return 2 if summary["status"] == "failed" else 0
+    return 0
+
+
+def _require(path: Path, instruction: str) -> None:
+    if not path.exists():
+        raise RuntimeError(f"Required artifact missing: {path}. {instruction}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

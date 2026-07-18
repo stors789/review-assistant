@@ -23,6 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
+review-assistant = "review_assistant.cli:main"
 review-assistant-read = "review_assistant.zotero_read:main"
 review-assistant-verify = "review_assistant.claim_verify:main"
 review-assistant-breakdown = "review_assistant.paper_breakdown:main"
