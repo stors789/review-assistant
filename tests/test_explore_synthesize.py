@@ -17,6 +17,9 @@ from review_assistant import explore_synthesize as explore
 
 
 class ExploreSynthesizeTests(unittest.TestCase):
+    def test_explore_output_is_explicitly_not_a_systematic_review(self):
+        self.assertIn("not a systematic review", explore.EXPLORATORY_NOTICE)
+
     def test_findings_cache_key_includes_content_question_and_model(self):
         with TemporaryDirectory() as tmp:
             pdf = Path(tmp) / "paper.pdf"

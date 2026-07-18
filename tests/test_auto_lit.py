@@ -1,6 +1,8 @@
 import sys
 import types
 import unittest
+import json
+from importlib.resources import files
 from pathlib import Path
 
 
@@ -13,6 +15,11 @@ from review_assistant import auto_lit
 
 
 class AutoLitScreenTests(unittest.TestCase):
+    @staticmethod
+    def legacy_rules():
+        resource = files("review_assistant").joinpath("profiles", "legacy-rag-screening.json")
+        return json.loads(resource.read_text(encoding="utf-8"))
+
     def test_screen_keeps_recent_low_citation_direct_match(self):
         paper = {
             "title": "Hybrid search retrieval augmented generation for RAG faithfulness in LLM QA",
@@ -21,7 +28,7 @@ class AutoLitScreenTests(unittest.TestCase):
             "citationCount": 0,
             "journal": {"name": "NeuroImage"},
         }
-        result = auto_lit.screen_paper(paper, min_relevance=4)
+        result = auto_lit.screen_paper(paper, min_relevance=4, rules=self.legacy_rules())
         self.assertTrue(result["keep"])
         self.assertEqual(result["tier"], "A")
         self.assertGreaterEqual(result["score"], 4)
@@ -34,7 +41,7 @@ class AutoLitScreenTests(unittest.TestCase):
             "citationCount": 1,
             "journal": {"name": "Conference Proceedings"},
         }
-        result = auto_lit.screen_paper(paper, min_relevance=4)
+        result = auto_lit.screen_paper(paper, min_relevance=4, rules=self.legacy_rules())
         self.assertFalse(result["keep"])
         self.assertEqual(result["tier"], "C")
 
@@ -46,9 +53,14 @@ class AutoLitScreenTests(unittest.TestCase):
             "citationCount": 20,
             "journal": {"name": "Epilepsy Research"},
         }
-        result = auto_lit.screen_paper(paper, min_relevance=4)
+        result = auto_lit.screen_paper(paper, min_relevance=4, rules=self.legacy_rules())
         self.assertIn("C", result["tier"])
         self.assertTrue(any(reason.startswith("exclude:") for reason in result["reasons"]))
+
+    def test_generic_default_has_no_topic_terms(self):
+        result = auto_lit.screen_paper({"title": "Any configured research topic"})
+        self.assertTrue(result["keep"])
+        self.assertEqual(auto_lit.DEFAULT_SCREENING_RULES, {"categories": {}})
 
     def test_term_matching_uses_word_boundaries_for_short_terms(self):
         self.assertNotIn("gpt", auto_lit._matched_terms("acceptance of gptlike systems", {"gpt"}))

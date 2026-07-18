@@ -70,47 +70,9 @@ _SS_LOCK_FILE = _get_ss_lock_file()
 CURRENT_YEAR = datetime.now().year
 
 
-DEFAULT_SCREENING_RULES = {
-    "categories": {
-        "core": {
-            "terms": [
-                "rag", "retrieval-augmented generation", "retrieval augmented generation",
-                "hybrid search", "dense retrieval", "sparse retrieval", "vector search"
-            ],
-            "weight": 2,
-            "required_for_tier_a": True
-        },
-        "model": {
-            "terms": [
-                "llm", "large language model", "large language models", "transformer", "transformers",
-                "gpt", "deepseek", "llama", "claude", "foundation model", "foundation models"
-            ],
-            "weight": 2,
-            "required_for_tier_a": True
-        },
-        "evaluation": {
-            "terms": [
-                "faithfulness", "hallucination", "hallucinations", "accuracy", "benchmarking",
-                "metrics", "evaluation", "evaluating", "human evaluation", "groundedness"
-            ],
-            "weight": 2,
-            "required_for_tier_a": True
-        },
-        "techniques": {
-            "terms": [
-                "reranking", "rerank", "query expansion", "document chunking", "vector database"
-            ],
-            "weight": 1
-        },
-        "exclusion": {
-            "terms": [
-                "computer vision", "image generation", "speech recognition", "robotics",
-                "reinforcement learning", "rlhf", "hardware", "quantum computing"
-            ],
-            "weight": -2
-        }
-    }
-}
+# Generic screening must not encode a research topic. Optional legacy/topic
+# profiles are package resources selected explicitly with --screen-rules.
+DEFAULT_SCREENING_RULES = {"categories": {}}
 
 
 def _search(query: str, source: str = "ss", limit: int = 20, ss_key: str = "", pubmed_key: str = "") -> list[dict]:
@@ -189,16 +151,16 @@ def _search_pubmed(query: str, limit: int = 20, pubmed_key: str = "") -> list[di
         for article in root.findall(".//PubmedArticle"):
             try:
                 # PMID
-                pmid_el = article.find(".//MedlineCitation/PMID")
+                pmid_el = article.find("./MedlineCitation/PMID")
                 pmid = pmid_el.text if pmid_el is not None else ""
                 
                 # Title
-                title_el = article.find(".//ArticleTitle")
+                title_el = article.find("./MedlineCitation/Article/ArticleTitle")
                 title = "".join(title_el.itertext()).strip() if title_el is not None else ""
                 
                 # Authors
                 authors = []
-                for author in article.findall(".//AuthorList/Author"):
+                for author in article.findall("./MedlineCitation/Article/AuthorList/Author"):
                     last = author.find("LastName")
                     fore = author.find("ForeName")
                     col = author.find("CollectiveName")
@@ -210,18 +172,22 @@ def _search_pubmed(query: str, limit: int = 20, pubmed_key: str = "") -> list[di
                         authors.append(last.text)
                         
                 # Journal
-                j_title_el = article.find(".//Journal/Title")
+                j_title_el = article.find("./MedlineCitation/Article/Journal/Title")
                 if j_title_el is None or not j_title_el.text:
-                    j_title_el = article.find(".//Journal/ISOAbbreviation")
+                    j_title_el = article.find("./MedlineCitation/Article/Journal/ISOAbbreviation")
                 j_title = j_title_el.text if j_title_el is not None else "Unknown Journal"
                 
                 # Date / Year
                 year = ""
-                year_el = article.find(".//JournalIssue/PubDate/Year")
+                year_el = article.find("./MedlineCitation/Article/Journal/JournalIssue/PubDate/Year")
+                if year_el is None:
+                    year_el = article.find("./MedlineCitation/Article/JournalIssue/PubDate/Year")
                 if year_el is not None and year_el.text:
                     year = year_el.text
                 else:
-                    medline_date = article.find(".//JournalIssue/PubDate/MedlineDate")
+                    medline_date = article.find("./MedlineCitation/Article/Journal/JournalIssue/PubDate/MedlineDate")
+                    if medline_date is None:
+                        medline_date = article.find("./MedlineCitation/Article/JournalIssue/PubDate/MedlineDate")
                     if medline_date is not None and medline_date.text:
                         year = medline_date.text.split()[0]
                 try:
@@ -232,7 +198,10 @@ def _search_pubmed(query: str, limit: int = 20, pubmed_key: str = "") -> list[di
                 # DOI & PMC ID (for OA PDF link)
                 doi = ""
                 pmc = ""
-                for article_id in article.findall(".//ArticleIdList/ArticleId"):
+                # ArticleIdList may also occur inside reference records.  Restrict
+                # this lookup to the current article's PubmedData, otherwise a DOI
+                # from a cited paper can overwrite the article's own DOI.
+                for article_id in article.findall("./PubmedData/ArticleIdList/ArticleId"):
                     if article_id.attrib.get("IdType") == "doi":
                         doi = article_id.text
                     elif article_id.attrib.get("IdType") == "pmc":
@@ -240,7 +209,7 @@ def _search_pubmed(query: str, limit: int = 20, pubmed_key: str = "") -> list[di
                         
                 # Abstract
                 abstract_texts = []
-                for abs_text in article.findall(".//Abstract/AbstractText"):
+                for abs_text in article.findall("./MedlineCitation/Article/Abstract/AbstractText"):
                     label = abs_text.attrib.get("Label")
                     text = "".join(abs_text.itertext()).strip()
                     if label:
@@ -401,6 +370,8 @@ def screen_paper(paper: dict, min_relevance: int = 4, rules: dict | None = None)
 
     category_hits = {}
     categories = rules.get("categories", {})
+    if not categories:
+        return {"keep": True, "score": 0, "tier": "B", "reasons": ["no domain screening profile configured"]}
     for cat_name, cat_config in categories.items():
         terms = cat_config.get("terms", [])
         weight = cat_config.get("weight", 0)
@@ -586,20 +557,34 @@ def _web_import(args, papers: list[dict], skipped: int = 0) -> bool:
         seen.add(doi)
         candidates.append(paper)
 
-    web_existing = client.find_existing_dois({_paper_doi(p) for p in candidates})
+    candidate_dois = {_paper_doi(p) for p in candidates}
+    if hasattr(client, "find_existing_items_by_doi"):
+        web_existing_items = client.find_existing_items_by_doi(candidate_dois)
+    else:  # compatibility with older ZoteroWebClient adapters
+        web_existing_items = {doi: None for doi in client.find_existing_dois(candidate_dois)}
     new_papers = []
     skipped_web = 0
+    existing_items_to_link = []
     for paper in candidates:
         doi = _paper_doi(paper)
-        if doi and doi in web_existing:
+        if doi and doi.lower() in web_existing_items:
             print(f"  ⏭ 跳过: {paper.get('title','?')[:70]} (Web 已有)", flush=True)
             skipped_web += 1
+            if web_existing_items[doi.lower()]:
+                existing_items_to_link.append(web_existing_items[doi.lower()])
             continue
         new_papers.append(paper)
 
+    if existing_items_to_link:
+        linked = client.add_items_to_collection(existing_items_to_link, collection_key)
+        linked_ok = len(linked.get("successful", {})) + len(linked.get("unchanged", {}))
+        print(f"📌 已将 {linked_ok} 篇已有文献加入目标 collection", flush=True)
+        for idx, err in linked.get("failed", {}).items():
+            print(f"  ⚠ 加入 collection 失败（第 {idx} 篇）: {err}", flush=True)
+
     if not new_papers:
         print("❌ 所有文献已在 Zotero 中", flush=True)
-        return False
+        return bool(existing_items_to_link)
 
     result = client.create_items(new_papers, collection_key, _candidate_tag_parts(args.tag))
     ok = len(result.get("successful", {}))
@@ -680,7 +665,11 @@ def main():
             sys.exit(1)
 
     existing = _get_existing_dois(zotero_dir=args.zotero_dir)
-    selected_papers, skipped = _filter_candidates(papers, args, existing, rules)
+    # For Web imports, the Web API performs DOI de-duplication and can add an
+    # existing item to the requested collection.  Pre-filtering against the
+    # local library would otherwise prevent that collection membership update.
+    filter_existing = set() if args.web_import else existing
+    selected_papers, skipped = _filter_candidates(papers, args, filter_existing, rules)
 
     if args.web_import:
         try:

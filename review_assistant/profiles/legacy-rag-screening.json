@@ -1,0 +1,9 @@
+{
+  "categories": {
+    "core": {"terms": ["rag", "retrieval-augmented generation", "retrieval augmented generation", "hybrid search", "dense retrieval", "sparse retrieval", "vector search"], "weight": 2, "required_for_tier_a": true},
+    "model": {"terms": ["llm", "large language model", "large language models", "transformer", "transformers", "gpt", "deepseek", "llama", "claude", "foundation model", "foundation models"], "weight": 2, "required_for_tier_a": true},
+    "evaluation": {"terms": ["faithfulness", "hallucination", "hallucinations", "accuracy", "benchmarking", "metrics", "evaluation", "evaluating", "human evaluation", "groundedness"], "weight": 2, "required_for_tier_a": true},
+    "techniques": {"terms": ["reranking", "rerank", "query expansion", "document chunking", "vector database"], "weight": 1},
+    "exclusion": {"terms": ["computer vision", "image generation", "speech recognition", "robotics", "reinforcement learning", "rlhf", "hardware", "quantum computing"], "weight": -2}
+  }
+}

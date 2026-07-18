@@ -66,6 +66,8 @@ from .pipeline import (
     _clean_refs,
 )
 
+EXPLORATORY_NOTICE = "This is an exploratory narrative synthesis based on the supplied document collection. It is not a systematic review."
+
 
 def _print_outline_tree(sections: list, indent: str):
     """Print report outline structure as a tree visualization in logs."""
@@ -308,6 +310,9 @@ def main():
         report = step4_integrate(client, outline, sections, args.question, paper_refs, args.model)
         save_cached_report(report_path, report_meta_path, report, report_meta)
         print(f"  📄 报告已保存: {report_path}", flush=True)
+    if EXPLORATORY_NOTICE not in report:
+        report = f"> {EXPLORATORY_NOTICE}\n\n{report}"
+        save_cached_report(report_path, report_meta_path, report, report_meta)
     if should_stop_after("step4", args.stop_after):
         print_stop_after("step4", output_dir)
         return
@@ -333,7 +338,11 @@ def main():
     if has_issues and args.max_fix_passes > 0:
         print(flush=True)
         for fix_pass in range(1, args.max_fix_passes + 1):
-            report = step6_fix_report(client, report, verification_report, all_results, args.model, pass_num=fix_pass, total_passes=args.max_fix_passes)
+            report = step6_fix_report(
+                client, report, verification_report, all_results, args.model,
+                pass_num=fix_pass, total_passes=args.max_fix_passes,
+                outline=outline, question=args.question,
+            )
             report = _clean_refs(report, paper_refs)
             report_path = output_dir / "report.md"
             save_cached_report(report_path, report_meta_path, report, report_meta)

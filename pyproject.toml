@@ -34,4 +34,4 @@ review-assistant-autolit = "review_assistant.auto_lit:main"
 packages = ["review_assistant"]
 
 [tool.setuptools.package-data]
-review_assistant = ["templates/**/*.yaml"]
+review_assistant = ["templates/**/*.yaml", "profiles/*.json"]
