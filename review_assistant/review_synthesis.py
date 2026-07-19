@@ -12,6 +12,7 @@ from .io_utils import atomic_write_text, load_yaml, read_jsonl, stable_id, write
 from .project import ReviewProject
 from .eligibility import resolve_eligible_studies
 from .config import DEFAULT_PRO_MODEL, get_model
+from .studies import evidence_location_id
 
 
 def eligible_study_ids(project: ReviewProject) -> list[str]:
@@ -483,9 +484,23 @@ def build_claim_map(project: ReviewProject, report: str, plan: dict[str, Any] | 
     plan = plan or resolve_synthesis_plan(project)
     valid_studies = set(eligible_study_ids(project))
     outcomes = read_jsonl(project.root / "extraction" / "outcomes.jsonl")
+    outcomes_by_id = {
+        str(outcome["outcome_id"]): outcome
+        for outcome in outcomes
+        if outcome.get("outcome_id")
+    }
+    evidence_by_id: dict[str, dict[str, Any]] = {}
     locations = defaultdict(list)
     for outcome in outcomes:
-        locations[outcome["study_id"]].extend(outcome.get("evidence", []))
+        outcome_id_value = str(outcome.get("outcome_id", ""))
+        study_id_value = str(outcome.get("study_id", ""))
+        for ordinal, raw_location in enumerate(outcome.get("evidence", [])):
+            location = dict(raw_location)
+            location["evidence_id"] = evidence_location_id(study_id_value, outcome_id_value, location, ordinal)
+            location["study_id"] = study_id_value
+            location["outcome_id"] = outcome_id_value
+            evidence_by_id[location["evidence_id"]] = location
+            locations[study_id_value].append(location)
     contradiction_payload = project.root / "evidence" / "contradiction_groups.json"
     contradiction_groups = json.loads(contradiction_payload.read_text())["groups"] if contradiction_payload.exists() else []
     claims = []
@@ -495,7 +510,10 @@ def build_claim_map(project: ReviewProject, report: str, plan: dict[str, Any] | 
         for raw in section.get("claims", []):
             if not isinstance(raw, dict) or not str(raw.get("sentence", "")).strip():
                 continue
-            claims.append(_analyze_claim(project, raw, section_id, spec, valid_studies, locations, contradiction_groups))
+            claims.append(_analyze_claim(
+                project, raw, section_id, spec, valid_studies, locations,
+                outcomes_by_id, evidence_by_id, contradiction_groups,
+            ))
     result = {"schema_version": "1.0", "protocol_hash": project.track_protocol(), "claims": claims}
     write_json(project.root / "synthesis" / "claim_map.json", result)
     return result
@@ -524,6 +542,8 @@ class ReviewLLMWriter:
                 "section_text": "markdown text with [study_id] citations",
                 "claims": [{
                     "sentence": "claim sentence", "supporting_study_ids": [], "contradicting_study_ids": [],
+                    "supporting_outcome_ids": [], "contradicting_outcome_ids": [],
+                    "supporting_evidence_refs": [], "contradicting_evidence_refs": [],
                     "required_qualifiers": [], "scope_status": "inside|adjacent|outside|unclear",
                     "population_levels": [], "claimed_population_levels": [],
                     "causal_strength": "descriptive|associational|causal|unclear",
@@ -548,22 +568,95 @@ def fixture_writer(**kwargs: Any) -> dict[str, Any]:
     items = [item for memo in kwargs["evidence_bundle"] for item in memo.get("evidence_items", [])]
     if not items:
         return {"section_text": "Evidence is insufficient for this protocol-required section.", "claims": []}
-    ids = [str(item["study_id"]) for item in items]
-    sentence = f"Eligible evidence for this section was reported by {len(ids)} study record(s) " + " ".join(f"[{sid}]" for sid in ids) + "."
+    supporting_studies: list[str] = []
+    contradicting_studies: list[str] = []
+    supporting_outcomes: list[str] = []
+    contradicting_outcomes: list[str] = []
+    supporting_evidence: list[str] = []
+    contradicting_evidence: list[str] = []
+    cited_studies: list[str] = []
+    for item in items:
+        study_id_value = str(item["study_id"])
+        selected = next(
+            (
+                (outcome, evidence)
+                for outcome in item.get("outcomes", [])
+                for evidence in outcome.get("evidence", [])
+                if outcome.get("outcome_id") and evidence.get("evidence_id")
+            ),
+            None,
+        )
+        if selected is None:
+            continue
+        outcome, evidence = selected
+        outcome_id_value = str(outcome["outcome_id"])
+        evidence_id_value = str(evidence["evidence_id"])
+        relation = str(outcome.get("support_relation", "unclear"))
+        if relation == "contradicts":
+            contradicting_studies.append(study_id_value)
+            contradicting_outcomes.append(outcome_id_value)
+            contradicting_evidence.append(evidence_id_value)
+        elif relation == "supports":
+            supporting_studies.append(study_id_value)
+            supporting_outcomes.append(outcome_id_value)
+            supporting_evidence.append(evidence_id_value)
+        else:
+            # The fixture keeps neutral/unclear evidence visible in the claim
+            # map so the symmetric audit can require an explicit explanation.
+            supporting_studies.append(study_id_value)
+            supporting_outcomes.append(outcome_id_value)
+            supporting_evidence.append(evidence_id_value)
+        cited_studies.append(study_id_value)
+    cited_studies = list(dict.fromkeys(cited_studies))
+    sentence = f"Eligible evidence for this section was reported by {len(cited_studies)} study record(s) " + " ".join(f"[{sid}]" for sid in cited_studies) + "."
+    support_level = "mixed" if supporting_studies and contradicting_studies else ("supported" if supporting_studies else "unsupported")
     return {"section_text": sentence, "claims": [{
-        "sentence": sentence, "supporting_study_ids": ids, "contradicting_study_ids": [],
+        "sentence": sentence, "supporting_study_ids": supporting_studies, "contradicting_study_ids": contradicting_studies,
+        "supporting_outcome_ids": supporting_outcomes, "contradicting_outcome_ids": contradicting_outcomes,
+        "supporting_evidence_refs": supporting_evidence, "contradicting_evidence_refs": contradicting_evidence,
+        "support_level": support_level,
         "required_qualifiers": list(section.get("required_qualifiers", [])), "scope_status": "unclear",
         "population_levels": [], "causal_strength": "descriptive",
     }]}
 
 
+def _reference_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _resolve_evidence_references(refs: list[Any], evidence_by_id: dict[str, dict[str, Any]]) -> tuple[list[dict[str, Any]], list[Any]]:
+    resolved: list[dict[str, Any]] = []
+    unresolved: list[Any] = []
+    for reference in refs:
+        if isinstance(reference, str):
+            evidence_id_value = reference.strip()
+        elif isinstance(reference, dict):
+            evidence_id_value = str(reference.get("evidence_id", "")).strip()
+        else:
+            evidence_id_value = ""
+        evidence = evidence_by_id.get(evidence_id_value)
+        if not evidence:
+            unresolved.append(reference)
+            continue
+        resolved.append(dict(evidence))
+    return resolved, unresolved
+
+
 def _analyze_claim(
     project: ReviewProject, raw: dict[str, Any], section_id: str, section_spec: dict[str, Any],
-    valid_studies: set[str], locations: dict[str, list[dict[str, Any]]], contradiction_groups: list[dict[str, Any]],
+    valid_studies: set[str], locations: dict[str, list[dict[str, Any]]],
+    outcomes_by_id: dict[str, dict[str, Any]], evidence_by_id: dict[str, dict[str, Any]],
+    contradiction_groups: list[dict[str, Any]],
 ) -> dict[str, Any]:
     sentence = str(raw.get("sentence", "")).strip()
-    supporting = [str(value) for value in raw.get("supporting_study_ids", raw.get("supporting_studies", []))]
-    contradicting = [str(value) for value in raw.get("contradicting_study_ids", raw.get("contradicting_studies", []))]
+    supporting = _as_id_list(raw.get("supporting_study_ids", raw.get("supporting_studies", [])))
+    contradicting = _as_id_list(raw.get("contradicting_study_ids", raw.get("contradicting_studies", [])))
+    supporting_outcomes = _as_id_list(raw.get("supporting_outcome_ids", raw.get("supporting_outcomes", [])))
+    contradicting_outcomes = _as_id_list(raw.get("contradicting_outcome_ids", raw.get("contradicting_outcomes", [])))
+    supporting_refs = _reference_list(raw.get("supporting_evidence_refs", []))
+    contradicting_refs = _reference_list(raw.get("contradicting_evidence_refs", []))
+    supporting_evidence, unresolved_supporting_evidence = _resolve_evidence_references(supporting_refs, evidence_by_id)
+    contradicting_evidence, unresolved_contradicting_evidence = _resolve_evidence_references(contradicting_refs, evidence_by_id)
     required = list(raw.get("required_qualifiers", section_spec.get("required_qualifiers", [])))
     study_rows = {
         str(item.get("study_id")): item for item in read_jsonl(project.root / "extraction" / "studies.jsonl")
@@ -615,13 +708,50 @@ def _analyze_claim(
         field for field in asserted_fields if supporting_rows
         and all(_claim_field(study, field, "not_reported") in {None, "", "not_reported"} for study in supporting_rows)
     ]
+    missing_supporting_outcomes = [
+        outcome_id_value for outcome_id_value in supporting_outcomes
+        if outcome_id_value not in outcomes_by_id
+        or str(outcomes_by_id[outcome_id_value].get("study_id")) not in supporting
+    ]
+    missing_contradicting_outcomes = [
+        outcome_id_value for outcome_id_value in contradicting_outcomes
+        if outcome_id_value not in outcomes_by_id
+        or str(outcomes_by_id[outcome_id_value].get("study_id")) not in contradicting
+    ]
+    has_study_linkage = bool(supporting or contradicting)
+    has_explicit_linkage = bool(supporting_outcomes or contradicting_outcomes or supporting_refs or contradicting_refs)
+    if has_study_linkage and not has_explicit_linkage:
+        linkage_status = "study_only_linkage"
+    elif (
+        missing_supporting_outcomes or missing_contradicting_outcomes
+        or unresolved_supporting_evidence or unresolved_contradicting_evidence
+    ):
+        linkage_status = "evidence_linkage_incomplete"
+    elif has_study_linkage and (supporting_evidence or contradicting_evidence):
+        linkage_status = "complete"
+    else:
+        linkage_status = "evidence_linkage_incomplete"
+    explicit_evidence_locations = [
+        {"study_id": study_id_value, "locations": [location]}
+        for study_id_value in sorted({str(item.get("study_id")) for item in supporting_evidence})
+        for location in supporting_evidence
+        if str(location.get("study_id")) == study_id_value
+    ]
     return {
         "claim_id": str(raw.get("claim_id") or stable_id("claim", section_id, sentence)),
         "section_id": section_id, "sentence": sentence,
         "supporting_studies": supporting, "contradicting_studies": contradicting,
+        "supporting_outcomes": supporting_outcomes, "contradicting_outcomes": contradicting_outcomes,
+        "supporting_evidence": supporting_evidence, "contradicting_evidence": contradicting_evidence,
+        "unresolved_supporting_evidence": unresolved_supporting_evidence,
+        "unresolved_contradicting_evidence": unresolved_contradicting_evidence,
+        "missing_supporting_outcomes": missing_supporting_outcomes,
+        "missing_contradicting_outcomes": missing_contradicting_outcomes,
+        "linkage_status": linkage_status,
+        "critical_claim": bool(supporting or contradicting),
         "support_level": support_level, "required_qualifiers": required,
         "missing_required_qualifiers": [value for value in required if str(value).casefold() not in sentence.casefold()],
-        "evidence_locations": [{"study_id": sid, "locations": locations[sid]} for sid in supporting if sid in locations],
+        "evidence_locations": explicit_evidence_locations,
         "protocol_scope_status": scope,
         "population_evidence_levels": population_levels,
         "claimed_population_levels": claimed_population_levels,

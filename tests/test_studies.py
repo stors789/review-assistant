@@ -28,6 +28,9 @@ class StudyExtractionTests(unittest.TestCase):
         self.assertEqual(len(publication.study_ids), 2)
         self.assertEqual((len(studies), len(outcomes), len(studies[0].arms)), (2, 2, 1))
         self.assertEqual(studies[1].fields["population.summary"], "not_reported")
+        evidence_id = outcomes[0].evidence[0].evidence_id
+        self.assertTrue(evidence_id.startswith("evidence_"))
+        self.assertEqual(evidence_id, outcomes[0].evidence[0].evidence_id)
 
     def test_failed_quote_is_saved_as_error_not_dropped(self):
         record = {"publication": {"title": "P"}, "studies": [{"fields": {}, "outcomes": [{"domain": "x", "direction": "unclear", "evidence": [{"quote": "bad"}]}]}]}

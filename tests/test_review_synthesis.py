@@ -100,6 +100,35 @@ class ReviewSynthesisTests(unittest.TestCase):
         self.assertEqual(claim_map["claims"][0]["protocol_scope_status"], "unclear")
         self.assertEqual(claim_map["claims"][0]["population_evidence_levels"], ["configured-level"])
 
+    def test_claim_map_preserves_explicit_outcome_and_evidence_linkage(self):
+        study_id = resolve_synthesis_plan(self.project)["sections"][0]["included_study_ids"][0]
+        outcome = next(item for item in read_jsonl(self.project.root / "extraction" / "outcomes.jsonl") if item["study_id"] == study_id)
+        evidence_id = outcome["evidence"][0]["evidence_id"]
+        sentence = f"The selected configured result was reported [{study_id}]."
+        synthesize_review(self.project, lambda **kwargs: {
+            "section_text": sentence,
+            "claims": [{
+                "sentence": sentence, "supporting_study_ids": [study_id],
+                "supporting_outcome_ids": [outcome["outcome_id"]],
+                "supporting_evidence_refs": [evidence_id],
+            }],
+        })
+        claim = json.loads((self.project.root / "synthesis" / "claim_map.json").read_text())["claims"][0]
+        self.assertEqual(claim["supporting_outcomes"], [outcome["outcome_id"]])
+        self.assertEqual([item["evidence_id"] for item in claim["supporting_evidence"]], [evidence_id])
+        self.assertEqual(claim["linkage_status"], "complete")
+
+    def test_legacy_study_only_writer_is_marked_incomplete(self):
+        study_id = resolve_synthesis_plan(self.project)["sections"][0]["included_study_ids"][0]
+        sentence = f"The configured result was reported [{study_id}]."
+        synthesize_review(self.project, lambda **kwargs: {
+            "section_text": sentence,
+            "claims": [{"sentence": sentence, "supporting_study_ids": [study_id]}],
+        })
+        claim = json.loads((self.project.root / "synthesis" / "claim_map.json").read_text())["claims"][0]
+        self.assertEqual(claim["linkage_status"], "study_only_linkage")
+        self.assertEqual(claim["supporting_evidence"], [])
+
     def test_writer_invalid_study_reference_is_preserved_for_audit(self):
         with self.assertRaisesRegex(ValueError, "coverage failed"):
             synthesize_review(self.project, lambda **kwargs: {

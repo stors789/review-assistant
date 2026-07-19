@@ -24,6 +24,7 @@ class EvidenceLocation:
     validation_method: str = "none"
     matched_excerpt: str = ""
     confidence: float = 0.0
+    evidence_id: str = ""
 
 
 @dataclass
@@ -78,6 +79,15 @@ def study_id(publication: str, label: str, ordinal: int) -> str:
     return stable_id("study", publication, label, ordinal)
 
 
+def evidence_location_id(study_id_value: str, outcome_id_value: str, location: dict[str, Any], ordinal: int) -> str:
+    """Return a deterministic identity for one extracted evidence location."""
+    return stable_id(
+        "evidence", study_id_value, outcome_id_value, location.get("quote", ""),
+        location.get("page", ""), location.get("section", ""),
+        location.get("figure", ""), location.get("table", ""), ordinal,
+    )
+
+
 def field_focus_terms(schema_data: dict[str, Any]) -> list[str]:
     """Build domain-neutral EvidencePack focus terms from external field metadata."""
     terms: list[str] = []
@@ -130,11 +140,15 @@ class StudyExtractionStore:
             arms = []
             for arm_index, arm in enumerate(raw.get("arms", [])):
                 aid = str(arm.get("arm_id") or stable_id("arm", sid, arm.get("role"), arm.get("label"), arm_index))
-                arms.append(Arm(aid, sid, str(arm.get("role", "")), str(arm.get("label", "")), dict(arm.get("attributes", {})), self._locations(arm.get("evidence", []), sid, errors)))
+                arms.append(Arm(
+                    aid, sid, str(arm.get("role", "")), str(arm.get("label", "")),
+                    dict(arm.get("attributes", {})),
+                    self._locations(arm.get("evidence", []), sid, errors, outcome_id=aid),
+                ))
             study_outcomes = []
             for outcome_index, raw_outcome in enumerate(raw.get("outcomes", [])):
                 oid = str(raw_outcome.get("outcome_id") or stable_id("outcome", sid, raw_outcome.get("domain"), outcome_index))
-                locations = self._locations(raw_outcome.get("evidence", []), sid, errors)
+                locations = self._locations(raw_outcome.get("evidence", []), sid, errors, outcome_id=oid)
                 used_legacy_direction = "effect_direction" not in raw_outcome and "direction" in raw_outcome
                 effect_direction = str(raw_outcome.get("effect_direction", raw_outcome.get("direction", "unclear")))
                 support_relation = str(raw_outcome.get("support_relation") or self._configured_support_relation(str(raw_outcome.get("domain", "not_reported")), effect_direction))
@@ -204,12 +218,15 @@ class StudyExtractionStore:
     def _evidence_map(self, raw: Any, sid: str, errors: list[dict[str, Any]]) -> dict[str, list[EvidenceLocation]]:
         if not isinstance(raw, dict):
             return {}
-        return {str(name): self._locations(locations, sid, errors) for name, locations in raw.items()}
+        return {
+            str(name): self._locations(locations, sid, errors, outcome_id=str(name))
+            for name, locations in raw.items()
+        }
 
-    def _locations(self, raw: Any, sid: str, errors: list[dict[str, Any]]) -> list[EvidenceLocation]:
+    def _locations(self, raw: Any, sid: str, errors: list[dict[str, Any]], *, outcome_id: str = "") -> list[EvidenceLocation]:
         values = raw if isinstance(raw, list) else []
         result = []
-        for item in values:
+        for ordinal, item in enumerate(values):
             if not isinstance(item, dict):
                 continue
             quote = str(item.get("quote", ""))
@@ -233,6 +250,7 @@ class StudyExtractionStore:
                 str(validation.get("validation_method", "none")), str(validation.get("matched_excerpt", "")),
                 float(validation.get("confidence", 0.0)),
             ))
+            result[-1].evidence_id = evidence_location_id(sid, outcome_id, item, ordinal)
         return result
 
 
