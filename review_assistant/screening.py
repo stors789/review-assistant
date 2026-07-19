@@ -17,6 +17,7 @@ Decision = Literal["include", "exclude", "uncertain", "duplicate"]
 STAGES = {"title_abstract", "fulltext"}
 DECISIONS = {"include", "exclude", "uncertain", "duplicate"}
 CSV_FIELDS = ["record_id", "stage", "decision", "reason_code", "reviewer", "timestamp", "note", "ai_recommendation", "ai_confidence"]
+COMPLETENESS_SCHEMA_VERSION = "1.0"
 
 
 @dataclass
@@ -30,6 +31,112 @@ class ScreeningDecision:
     note: str = ""
     ai_recommendation: str = ""
     ai_confidence: str = ""
+
+
+def latest_screening_decisions(project: ReviewProject) -> dict[tuple[str, str], dict[str, Any]]:
+    """Return the last persisted decision for each record/stage pair.
+
+    Decision history is append-only.  The event order, rather than a caller
+    supplied timestamp, is the revision order so that an imported correction
+    cannot be hidden by an older timestamp.
+    """
+    latest: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in read_jsonl(project.root / "screening" / "decision_history.jsonl"):
+        record_id = str(item.get("record_id", ""))
+        stage = str(item.get("stage", ""))
+        if record_id and stage in STAGES:
+            latest[(record_id, stage)] = item
+    return latest
+
+
+def resolve_screening_completeness(project: ReviewProject) -> dict[str, Any]:
+    """Resolve screening completeness against the complete search universe.
+
+    The deduplicated search output is the denominator.  This deliberately
+    does not infer completeness from the subset of records that happen to
+    have a decision-history row, which is the common source of false passes in
+    formal review audits.
+    """
+    protocol_screening = project.protocol.data.get("screening", {})
+    enforcement = str(protocol_screening.get("enforcement", "optional"))
+    if enforcement not in {"required", "optional", "disabled"}:
+        raise ValueError("screening.enforcement must be required, optional, or disabled")
+
+    records = read_jsonl(project.root / "search" / "deduplicated_records.jsonl")
+    universe = sorted({str(item.get("record_id")) for item in records if item.get("record_id")})
+    universe_set = set(universe)
+    latest = latest_screening_decisions(project)
+    legal_complete = {"include", "exclude", "duplicate"}
+    illegal_state_ids: set[str] = set()
+
+    for (record_id, stage), event in latest.items():
+        decision = event.get("decision")
+        if record_id not in universe_set or decision not in DECISIONS:
+            illegal_state_ids.add(record_id)
+
+    title_complete: set[str] = set()
+    title_missing: set[str] = set()
+    title_uncertain: set[str] = set()
+    title_included: set[str] = set()
+    for record_id in universe:
+        event = latest.get((record_id, "title_abstract"))
+        if event is None:
+            title_missing.add(record_id)
+            continue
+        decision = event.get("decision")
+        if decision in legal_complete:
+            title_complete.add(record_id)
+            if decision == "include":
+                title_included.add(record_id)
+        elif decision == "uncertain":
+            title_uncertain.add(record_id)
+        else:
+            illegal_state_ids.add(record_id)
+
+    fulltext_required = set(title_included)
+    fulltext_complete: set[str] = set()
+    fulltext_missing: set[str] = set()
+    fulltext_uncertain: set[str] = set()
+    fulltext_included: set[str] = set()
+    for record_id in sorted(fulltext_required):
+        event = latest.get((record_id, "fulltext"))
+        if event is None:
+            fulltext_missing.add(record_id)
+            continue
+        decision = event.get("decision")
+        if decision in legal_complete:
+            fulltext_complete.add(record_id)
+            if decision == "include":
+                fulltext_included.add(record_id)
+        elif decision == "uncertain":
+            fulltext_uncertain.add(record_id)
+        else:
+            illegal_state_ids.add(record_id)
+
+    # A full-text decision for a title/abstract exclusion or duplicate is an
+    # impossible state.  Retain it as a diagnostic rather than silently using
+    # the later decision to make the record eligible.
+    for (record_id, stage), event in latest.items():
+        if stage == "fulltext" and record_id in universe_set and record_id not in title_included:
+            illegal_state_ids.add(record_id)
+
+    result = {
+        "schema_version": COMPLETENESS_SCHEMA_VERSION,
+        "enforcement": enforcement,
+        "all_search_record_ids": universe,
+        "title_abstract_complete_ids": sorted(title_complete),
+        "title_abstract_included_ids": sorted(title_included),
+        "title_abstract_missing_ids": sorted(title_missing),
+        "title_abstract_uncertain_ids": sorted(title_uncertain),
+        "fulltext_required_ids": sorted(fulltext_required),
+        "fulltext_complete_ids": sorted(fulltext_complete),
+        "fulltext_missing_ids": sorted(fulltext_missing),
+        "fulltext_uncertain_ids": sorted(fulltext_uncertain),
+        "illegal_state_ids": sorted(illegal_state_ids),
+        "screening_required": enforcement == "required",
+    }
+    write_json(project.root / "screening" / "completeness.json", result)
+    return result
 
 
 class ScreeningStore:
@@ -67,9 +174,9 @@ class ScreeningStore:
         return [event for event in events if (record_id is None or event["record_id"] == record_id) and (stage is None or event["stage"] == stage)]
 
     def current(self, stage: str | None = None) -> list[dict[str, Any]]:
-        latest: dict[tuple[str, str], dict[str, Any]] = {}
-        for event in self.history(stage=stage):
-            latest[(event["record_id"], event["stage"])] = event
+        latest = latest_screening_decisions(self.project)
+        if stage is not None:
+            latest = {key: value for key, value in latest.items() if key[1] == stage}
         return [latest[key] for key in sorted(latest)]
 
     def import_csv(self, path: Path, mapping: dict[str, str], *, default_stage: str | None = None, default_reviewer: str = "import") -> int:

@@ -7,6 +7,8 @@ from typing import Any
 
 from .io_utils import read_jsonl
 from .project import ReviewProject
+from .screening import latest_screening_decisions as _latest_screening_decisions
+from .screening import resolve_screening_completeness
 
 ENFORCEMENT_LEVELS = {"required", "optional", "disabled"}
 
@@ -22,6 +24,7 @@ class EligibilityResult:
     unlinked_included_record_ids: set[str] = field(default_factory=set)
     unlinked_study_ids: set[str] = field(default_factory=set)
     illegal_states: list[dict[str, Any]] = field(default_factory=list)
+    screening_completeness: dict[str, Any] = field(default_factory=dict)
 
 
 def screening_enforcement(project: ReviewProject) -> str:
@@ -32,18 +35,13 @@ def screening_enforcement(project: ReviewProject) -> str:
 
 
 def latest_screening_decisions(project: ReviewProject) -> dict[tuple[str, str], dict[str, Any]]:
-    latest: dict[tuple[str, str], dict[str, Any]] = {}
-    for item in read_jsonl(project.root / "screening" / "decision_history.jsonl"):
-        record_id = str(item.get("record_id", ""))
-        stage = str(item.get("stage", ""))
-        if record_id and stage in {"title_abstract", "fulltext"}:
-            latest[(record_id, stage)] = item
-    return latest
+    return _latest_screening_decisions(project)
 
 
 def resolve_eligibility(project: ReviewProject) -> EligibilityResult:
     """Resolve records, publications, and studies through one screening gate."""
     enforcement = screening_enforcement(project)
+    completeness = resolve_screening_completeness(project)
     studies = {
         str(item["study_id"]): item
         for item in read_jsonl(project.root / "extraction" / "studies.jsonl")
@@ -55,19 +53,26 @@ def resolve_eligibility(project: ReviewProject) -> EligibilityResult:
             latest_links[str(link["study_id"])] = link
     decisions = latest_screening_decisions(project)
     fulltext = {rid: item for (rid, stage), item in decisions.items() if stage == "fulltext"}
-    title_abstract = {rid: item for (rid, stage), item in decisions.items() if stage == "title_abstract"}
-    included = {rid for rid, item in fulltext.items() if item.get("decision") == "include"}
-    result = EligibilityResult(enforcement=enforcement, included_record_ids=included)
+    screened_included = {rid for rid, item in fulltext.items() if item.get("decision") == "include"}
+    if enforcement == "required":
+        included = screened_included & set(completeness["title_abstract_included_ids"])
+    else:
+        included = screened_included
+    result = EligibilityResult(enforcement=enforcement, included_record_ids=included, screening_completeness=completeness)
 
     for rid, item in fulltext.items():
         if item.get("decision") not in {"include", "exclude", "uncertain", "duplicate"}:
             result.illegal_states.append({"record_id": rid, "stage": "fulltext", "decision": item.get("decision")})
     if enforcement == "required":
-        candidate_records = set(title_abstract) | set(fulltext)
-        result.incomplete_record_ids = {
-            rid for rid in candidate_records
-            if rid not in fulltext or fulltext[rid].get("decision") not in {"include", "exclude", "duplicate"}
-        }
+        result.incomplete_record_ids = set(completeness["title_abstract_missing_ids"])
+        result.incomplete_record_ids.update(completeness["title_abstract_uncertain_ids"])
+        result.incomplete_record_ids.update(completeness["fulltext_missing_ids"])
+        result.incomplete_record_ids.update(completeness["fulltext_uncertain_ids"])
+        result.incomplete_record_ids.update(completeness["illegal_state_ids"])
+        result.illegal_states = [
+            {"record_id": record_id, "stage": "screening", "decision": "illegal"}
+            for record_id in completeness["illegal_state_ids"]
+        ]
 
     if enforcement == "disabled" or (enforcement == "optional" and not fulltext):
         result.eligible_study_ids = set(studies)
