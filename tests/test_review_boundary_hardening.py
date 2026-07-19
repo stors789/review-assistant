@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from review_assistant.io_utils import load_yaml, write_yaml
+from review_assistant.io_utils import append_jsonl, load_yaml, write_yaml
 from review_assistant.project import ReviewProject
 from review_assistant.review_audit import ReviewAuditor, _extraction_evidence_index
 from review_assistant.review_evidence import ContradictionAnalyzer
@@ -11,7 +11,7 @@ from review_assistant.review_synthesis import (
     synthesize_review,
     validate_structured_section_output,
 )
-from review_assistant.studies import StudyExtractionStore, current_evidence
+from review_assistant.studies import StudyExtractionStore, current_evidence, evidence_location_id
 
 
 class ReviewBoundaryHardeningTests(unittest.TestCase):
@@ -146,6 +146,30 @@ class ReviewBoundaryHardeningTests(unittest.TestCase):
             "supporting_evidence_refs": [outcomes[0].evidence[0].evidence_id, outcomes[1].evidence[0].evidence_id],
         }))
         self.assertEqual(ReviewAuditor(self.project).run()["status"], "passed")
+
+    def test_active_but_stale_run_reference_is_reported_separately(self):
+        study_id, _ = self._ingest([{
+            "domain": "configured", "effect_direction": "increase", "support_relation": "supports",
+            "evidence": [{"quote": "verified current quotation", "manual_verified": True}],
+        }])
+        stale_location = {
+            "quote": "verified stale quotation", "page": "9", "validation_status": "passed",
+            "manual_verified": True, "extraction_run_id": "old-run",
+        }
+        stale_location["evidence_id"] = evidence_location_id(study_id, "outcome_stale", stale_location, 0)
+        append_jsonl(self.project.root / "extraction" / "outcomes.jsonl", [{
+            "outcome_id": "outcome_stale", "study_id": study_id, "domain": "configured",
+            "effect_direction": "increase", "support_relation": "supports", "evidence": [stale_location],
+            "extraction_run_id": "old-run", "status": "active",
+        }])
+        sentence = f"The configured result was reported [{study_id}]."
+        synthesize_review(self.project, self._writer(sentence, {
+            "sentence": sentence, "supporting_study_ids": [study_id],
+            "supporting_outcome_ids": ["outcome_stale"],
+            "supporting_evidence_refs": [stale_location["evidence_id"]],
+        }))
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("stale_extraction_reference", summary["counts"])
 
     def test_unknown_citation_and_outcome_filter_are_hard_failures(self):
         study_id, outcomes = self._ingest([
