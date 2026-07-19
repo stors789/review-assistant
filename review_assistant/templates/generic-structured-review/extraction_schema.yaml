@@ -26,6 +26,9 @@ outcome_schema:
       section: {type: string, required: false}
       figure: {type: string, required: false}
       table: {type: string, required: false}
+outcome_identity:
+  fields: [domain, measure, timepoint, population, comparison]
+  fallback: domain_and_ordinal
 matrix:
   columns: [publication_id, study_id, study.design, population.summary, outcome_domains, effect_directions, support_relations, quote_validation_status]
 contradiction_analysis:

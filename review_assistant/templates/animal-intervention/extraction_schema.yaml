@@ -8,5 +8,8 @@ outcome_schema:
   effect_direction: {type: enum, values: [increase, decrease, no_change, mixed, unclear], required: true}
   support_relation: {type: enum, values: [supports, contradicts, neutral, mixed, unclear], required: true}
   evidence: {type: list, required: true, item_schema: {quote: {type: string, required: true}}}
+outcome_identity:
+  fields: [domain, measure, timepoint, population, comparison]
+  fallback: domain_and_ordinal
 matrix: {columns: [publication_id, study_id, study.design, population.model, intervention.summary, outcome_domains, effect_directions, support_relations, quote_validation_status]}
 contradiction_analysis: {claim_dimensions: [outcome.domain, population.model, intervention.summary], moderator_candidates: [study.design]}

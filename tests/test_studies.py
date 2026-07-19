@@ -5,7 +5,17 @@ from pathlib import Path
 
 from review_assistant.project import ReviewProject
 from review_assistant.io_utils import append_jsonl, load_yaml, read_jsonl, write_yaml
-from review_assistant.studies import StudyExtractionStore, current_extraction_errors, extract_fulltext_documents, field_focus_terms, publication_id, study_id
+from review_assistant.studies import (
+    StudyExtractionStore,
+    current_evidence,
+    current_extraction_errors,
+    current_outcomes,
+    extract_fulltext_documents,
+    field_focus_terms,
+    historical_outcomes,
+    publication_id,
+    study_id,
+)
 
 
 class StudyExtractionTests(unittest.TestCase):
@@ -64,6 +74,57 @@ class StudyExtractionTests(unittest.TestCase):
         self.assertTrue(historical)
         self.assertTrue(all(error.get("status") == "superseded" for error in historical))
         self.assertFalse(any(error.get("error") == "quote_verification_failed" for error in current_extraction_errors(self.project)))
+
+    def test_configured_outcome_identity_survives_reordering_and_tracks_deletion(self):
+        schema = load_yaml(self.project.root / "extraction_schema.yaml")
+        schema["outcome_identity"] = {"fields": ["domain", "timepoint"], "fallback": "domain_and_ordinal"}
+        write_yaml(self.project.root / "extraction_schema.yaml", schema)
+        first = {
+            "publication": {"title": "Stable identity publication"},
+            "studies": [{"label": "configured study", "fields": {}, "outcomes": [
+                {"domain": "metric-a", "timepoint": "t1", "evidence": [{"quote": "old A"}]},
+                {"domain": "metric-b", "timepoint": "t2", "evidence": [{"quote": "B"}]},
+            ]}],
+        }
+        _, _, first_outcomes = StudyExtractionStore(self.project).ingest(first)
+        first_ids = {item.domain: item.outcome_id for item in first_outcomes}
+        first_evidence = {item.domain: item.evidence[0].evidence_id for item in first_outcomes}
+
+        second = json.loads(json.dumps(first))
+        second["studies"][0]["outcomes"] = [
+            {"domain": "metric-b", "timepoint": "t2", "evidence": [{"quote": "B"}]},
+            {"domain": "metric-a", "timepoint": "t1", "evidence": [{"quote": "new A"}]},
+        ]
+        _, _, reordered = StudyExtractionStore(self.project).ingest(second)
+        reordered_ids = {item.domain: item.outcome_id for item in reordered}
+        self.assertEqual(reordered_ids, first_ids)
+        self.assertNotEqual(first_evidence["metric-a"], next(item for item in reordered if item.domain == "metric-a").evidence[0].evidence_id)
+
+        third = json.loads(json.dumps(second))
+        third["studies"][0]["outcomes"] = [
+            {"domain": "metric-a", "timepoint": "t1", "evidence": [{"quote": "new A"}]},
+            {"domain": "metric-c", "timepoint": "t3", "evidence": [{"quote": "C"}]},
+        ]
+        _, _, final = StudyExtractionStore(self.project).ingest(third)
+        final_ids = {item.domain: item.outcome_id for item in final}
+        self.assertEqual(set(final_ids), {"metric-a", "metric-c"})
+        self.assertEqual(final_ids["metric-a"], first_ids["metric-a"])
+        self.assertNotEqual(final_ids["metric-c"], first_ids["metric-a"])
+        self.assertEqual({item["outcome_id"] for item in current_outcomes(self.project)}, set(final_ids.values()))
+        self.assertTrue(all(item["outcome_id"] != first_ids["metric-b"] for item in current_outcomes(self.project)))
+        self.assertTrue(any(item["outcome_id"] == first_ids["metric-b"] and item.get("status") == "superseded" for item in historical_outcomes(self.project)))
+        self.assertEqual({item["outcome_id"] for item in current_evidence(self.project)}, set(final_ids.values()))
+
+    def test_ordinal_identity_fallback_is_explicitly_warned(self):
+        schema = load_yaml(self.project.root / "extraction_schema.yaml")
+        schema["outcome_identity"] = {"fields": [], "fallback": "domain_and_ordinal"}
+        write_yaml(self.project.root / "extraction_schema.yaml", schema)
+        StudyExtractionStore(self.project).ingest({
+            "publication": {"title": "Fallback identity publication"},
+            "studies": [{"fields": {}, "outcomes": [{"domain": "configured", "evidence": []}]}],
+        })
+        warnings = (self.project.root / "extraction" / "extraction_warnings.jsonl").read_text()
+        self.assertIn("unstable_outcome_identity_fallback", warnings)
 
     def test_focus_terms_come_from_schema_metadata(self):
         terms = field_focus_terms({"fields": {"sample.variable": {"description": "Configured descriptor", "aliases": ["configured alias"], "extraction_instruction": "Find explicit report"}}})

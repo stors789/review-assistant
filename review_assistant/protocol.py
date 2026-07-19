@@ -91,6 +91,16 @@ class ExtractionSchema:
         if outcome_schema is not None:
             for name, spec in _mapping(outcome_schema, "outcome_schema").items():
                 cls._validate_field(f"outcome_schema.{name}", _mapping(spec, f"outcome_schema.{name}"))
+        outcome_identity = data.get("outcome_identity")
+        if outcome_identity is not None:
+            identity = _mapping(outcome_identity, "outcome_identity")
+            fields = identity.get("fields", [])
+            _list(fields, "outcome_identity.fields")
+            if any(not isinstance(field, str) or not field.strip() for field in fields):
+                raise ConfigurationError("outcome_identity.fields must contain non-empty strings")
+            fallback = identity.get("fallback", "domain_and_ordinal")
+            if not isinstance(fallback, str) or fallback not in {"domain_and_ordinal", "domain", "domain_only"}:
+                raise ConfigurationError("outcome_identity.fallback must be domain_and_ordinal or domain")
         return cls(data=data)
 
     @classmethod
@@ -147,6 +157,16 @@ class ExtractionSchema:
             "quote": {"type": "string", "required": True},
         }})
         return normalized
+
+    @property
+    def outcome_identity(self) -> dict[str, Any]:
+        configured = self.data.get("outcome_identity")
+        if not isinstance(configured, dict):
+            return {"fields": [], "fallback": "domain_and_ordinal"}
+        return {
+            "fields": list(configured.get("fields", [])),
+            "fallback": str(configured.get("fallback", "domain_and_ordinal")),
+        }
 
     def apply_study_missing_values(self, values: dict[str, Any]) -> dict[str, Any]:
         result = dict(values)

@@ -14,6 +14,17 @@ from .project import ReviewProject, utc_now
 from .review_search import _doi, _title_key
 
 EXTRACTION_SCHEMA_VERSION = "1.1"
+INACTIVE_ENTITY_STATUSES = frozenset({"superseded", "resolved", "inactive"})
+_ENTITY_COLLECTIONS = {
+    "publication": "publications",
+    "study": "studies",
+    "outcome": "outcomes",
+}
+_ENTITY_FILES = {
+    "publication": "publications.jsonl",
+    "study": "studies.jsonl",
+    "outcome": "outcomes.jsonl",
+}
 
 
 @dataclass
@@ -48,6 +59,7 @@ class Outcome:
     extraction_version: int = 0
     status: str = "active"
     supersedes: str = ""
+    identity_source: str = "legacy"
 
 
 @dataclass
@@ -121,6 +133,122 @@ def outcome_identity_key(study: str, domain: str, ordinal: int) -> str:
     return _identity_key("outcome", study, domain, ordinal)
 
 
+def _nested_value(value: Any, path: str, default: Any = None) -> Any:
+    """Read a configured dotted field from either flat or nested extraction data."""
+    if isinstance(value, dict) and path in value:
+        return value[path]
+    current = value
+    for part in str(path).split("."):
+        if not isinstance(current, dict) or part not in current:
+            return default
+        current = current[part]
+    return current
+
+
+def _identity_part(value: Any) -> str:
+    if value is None or value == "":
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    value = str(value).strip()
+    if value.casefold() in {"not_reported", "unknown", "n/a"}:
+        return ""
+    return value
+
+
+def _outcome_identity_config(schema_data: dict[str, Any] | None) -> tuple[list[str], str]:
+    configured = schema_data.get("outcome_identity", {}) if isinstance(schema_data, dict) else {}
+    if not isinstance(configured, dict):
+        configured = {}
+    fields = configured.get("fields", [])
+    fields = [str(value).strip() for value in fields] if isinstance(fields, list) else []
+    fields = list(dict.fromkeys(value for value in fields if value))
+    fallback = str(configured.get("fallback", "domain_and_ordinal"))
+    return fields, fallback
+
+
+def _configured_outcome_identity_key(study: str, outcome: dict[str, Any], fields: list[str]) -> str:
+    values = [_identity_part(_nested_value(outcome, field)) for field in fields]
+    present = [f"{field}={value}" for field, value in zip(fields, values) if value]
+    if not present:
+        return ""
+    return _identity_key("outcome-configured", study, *present)
+
+
+def resolve_outcome_identity(
+    study: str, outcome: dict[str, Any], ordinal: int, schema_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve an Outcome identity without embedding domain-specific semantics.
+
+    Explicit IDs and user-provided identity keys are authoritative.  Configured
+    fields are hashed in field order, while the legacy ordinal fallback remains
+    available for old schemas and emits a warning because reordering can change
+    that identity.
+    """
+    explicit_id = str(outcome.get("outcome_id", "")).strip()
+    if explicit_id:
+        return {
+            "identity_key": f"outcome-id:{explicit_id}",
+            "identity_source": "explicit_outcome_id",
+            "outcome_id": explicit_id,
+            "warning": "",
+        }
+    explicit_key = str(outcome.get("identity_key", "")).strip()
+    if explicit_key:
+        return {
+            "identity_key": explicit_key,
+            "identity_source": "explicit_identity_key",
+            "outcome_id": "",
+            "warning": "",
+        }
+
+    fields, fallback = _outcome_identity_config(schema_data)
+    configured_key = _configured_outcome_identity_key(study, outcome, fields)
+    if configured_key:
+        return {
+            "identity_key": configured_key,
+            "identity_source": "configured_fields",
+            "outcome_id": "",
+            "warning": "",
+        }
+
+    domain = str(outcome.get("domain", "")).strip()
+    if fallback in {"domain", "domain_only"} and domain:
+        return {
+            "identity_key": _identity_key("outcome-domain", study, domain),
+            "identity_source": "domain_fallback",
+            "outcome_id": "",
+            "warning": "",
+        }
+    # Keep the historical ID derivation exactly available for legacy projects.
+    return {
+        "identity_key": outcome_identity_key(study, domain, ordinal),
+        "identity_source": "ordinal_fallback",
+        "outcome_id": "",
+        "warning": "unstable_outcome_identity_fallback",
+    }
+
+
+def _outcome_identity_aliases(
+    study: str, outcome: dict[str, Any], ordinal: int, schema_data: dict[str, Any] | None,
+) -> set[str]:
+    """Return compatibility aliases used to match legacy persisted Outcomes."""
+    aliases: set[str] = set()
+    identity_key = str(outcome.get("identity_key", "")).strip()
+    if identity_key:
+        aliases.add(identity_key)
+    outcome_id_value = str(outcome.get("outcome_id", "")).strip()
+    if outcome_id_value:
+        aliases.update({f"outcome-id:{outcome_id_value}", outcome_id_value})
+    fields, _ = _outcome_identity_config(schema_data)
+    configured_key = _configured_outcome_identity_key(study, outcome, fields)
+    if configured_key:
+        aliases.add(configured_key)
+    domain = str(outcome.get("domain", "")).strip()
+    aliases.add(outcome_identity_key(study, domain, ordinal))
+    return aliases
+
+
 def _load_extraction_state(output: Path) -> dict[str, Any]:
     path = output / "current_extraction_state.json"
     if not path.exists():
@@ -136,6 +264,105 @@ def _load_extraction_state(output: Path) -> dict[str, Any]:
             payload[key] = {}
     payload.setdefault("schema_version", EXTRACTION_SCHEMA_VERSION)
     return payload
+
+
+def _entity_id(value: dict[str, Any], entity_type: str) -> str:
+    return str(value.get({
+        "publication": "publication_id", "study": "study_id", "outcome": "outcome_id",
+    }.get(entity_type, ""), ""))
+
+
+def _current_entity_rows(project: ReviewProject, entity_type: str) -> list[dict[str, Any]]:
+    """Return only active rows represented by the current extraction state.
+
+    Missing status remains backward-compatible with old JSONL rows.  Once a
+    current state map contains entities, rows not represented by that map or
+    carrying a different extraction run are historical, even if an old row was
+    accidentally left with an active status.
+    """
+    if entity_type not in _ENTITY_FILES:
+        raise ValueError(f"unknown extraction entity type: {entity_type}")
+    output = project.root / "extraction"
+    state_path = output / "current_extraction_state.json"
+    state = _load_extraction_state(output) if state_path.exists() else {}
+    collection = _ENTITY_COLLECTIONS[entity_type]
+    state_map = state.get(collection, {}) if isinstance(state, dict) else {}
+    use_state_map = isinstance(state_map, dict) and bool(state_map)
+    selected: dict[str, dict[str, Any]] = {}
+    for row in read_jsonl(output / _ENTITY_FILES[entity_type]):
+        entity_id = _entity_id(row, entity_type)
+        if not entity_id or str(row.get("status", "active")) != "active":
+            continue
+        state_entry = state_map.get(entity_id) if use_state_map else None
+        if use_state_map:
+            if not isinstance(state_entry, dict) or str(state_entry.get("status", "active")) != "active":
+                continue
+            expected_run = str(state_entry.get("extraction_run_id", ""))
+            row_run = str(row.get("extraction_run_id", ""))
+            if expected_run and row_run and row_run != expected_run:
+                continue
+            # Outcome rows must identify the exact current extraction.  Study
+            # and publication rows without run metadata remain loadable for
+            # legacy projects that predate extraction run tracking.
+            if entity_type == "outcome" and expected_run and row_run != expected_run:
+                continue
+        selected[entity_id] = row
+    return list(selected.values())
+
+
+def current_publications(project: ReviewProject) -> list[dict[str, Any]]:
+    return _current_entity_rows(project, "publication")
+
+
+def current_studies(project: ReviewProject) -> list[dict[str, Any]]:
+    return _current_entity_rows(project, "study")
+
+
+def current_outcomes(project: ReviewProject) -> list[dict[str, Any]]:
+    return _current_entity_rows(project, "outcome")
+
+
+def _evidence_records_from_outcomes(
+    outcomes: list[dict[str, Any]], *, current: bool,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for outcome in outcomes:
+        study_id_value = str(outcome.get("study_id", ""))
+        outcome_id_value = str(outcome.get("outcome_id", ""))
+        expected_run = str(outcome.get("extraction_run_id", ""))
+        raw_locations = outcome.get("evidence", [])
+        if not isinstance(raw_locations, list):
+            continue
+        for ordinal, raw_location in enumerate(raw_locations):
+            if not isinstance(raw_location, dict):
+                continue
+            status = str(raw_location.get("status", "active"))
+            if current and status != "active":
+                continue
+            location_run = str(raw_location.get("extraction_run_id", ""))
+            if current and expected_run and location_run and location_run != expected_run:
+                continue
+            location = dict(raw_location)
+            location["evidence_id"] = evidence_location_id(study_id_value, outcome_id_value, location, ordinal)
+            location["study_id"] = study_id_value
+            location["outcome_id"] = outcome_id_value
+            location["outcome_status"] = str(outcome.get("status", "active"))
+            location.setdefault("extraction_run_id", expected_run)
+            records.append(location)
+    return records
+
+
+def current_evidence(project: ReviewProject) -> list[dict[str, Any]]:
+    """Return active evidence inheriting the lifecycle of current Outcomes."""
+    return _evidence_records_from_outcomes(current_outcomes(project), current=True)
+
+
+def historical_outcomes(project: ReviewProject) -> list[dict[str, Any]]:
+    return read_jsonl(project.root / "extraction" / "outcomes.jsonl")
+
+
+def historical_evidence(project: ReviewProject) -> list[dict[str, Any]]:
+    return _evidence_records_from_outcomes(historical_outcomes(project), current=False)
 
 
 def _write_jsonl_values(path: Path, values: list[dict[str, Any]]) -> None:
@@ -234,22 +461,30 @@ class StudyExtractionStore:
         output = self.project.root / "extraction"
         state = _load_extraction_state(output)
         timestamp = utc_now()
-        previous_publication = state["publications"].get(pub_id, {})
+        previous_publication = next(
+            (item for item in current_publications(self.project) if str(item.get("publication_id")) == pub_id),
+            state["publications"].get(pub_id, {}),
+        )
         extraction_version = int(previous_publication.get("extraction_version", 0) or 0) + 1
         extraction_run_id = stable_id("extraction-run", pub_id, timestamp, extraction_version)
         previous_studies: dict[str, dict[str, Any]] = {}
-        for item in read_jsonl(output / "studies.jsonl"):
+        for item in current_studies(self.project):
             if str(item.get("publication_id", "")) != pub_id:
                 continue
             key = str(item.get("identity_key") or study_identity_key(pub_id, str(item.get("label", ""))))
-            if item.get("status", "active") == "active":
-                previous_studies[key] = item
+            previous_studies[key] = item
         previous_outcomes: dict[str, dict[str, Any]] = {}
-        for item in read_jsonl(output / "outcomes.jsonl"):
-            if item.get("status", "active") != "active":
-                continue
-            key = str(item.get("identity_key") or outcome_identity_key(str(item.get("study_id", "")), str(item.get("domain", "")), 0))
-            previous_outcomes[key] = item
+        previous_outcome_rows = [
+            item for item in current_outcomes(self.project)
+            if str(item.get("study_id", "")) in {str(value.get("study_id", "")) for value in previous_studies.values()}
+        ]
+        outcome_ordinals: dict[str, int] = {}
+        for item in previous_outcome_rows:
+            study_id_value = str(item.get("study_id", ""))
+            ordinal = outcome_ordinals.get(study_id_value, 0)
+            outcome_ordinals[study_id_value] = ordinal + 1
+            for alias in _outcome_identity_aliases(study_id_value, item, ordinal, self.schema.data):
+                previous_outcomes[alias] = item
         publication = Publication(
             publication_id=pub_id, title=str(pub_data.get("title", "")), doi=str(pub_data.get("doi", "")),
             year=str(pub_data.get("year", "")), authors=[str(author) for author in pub_data.get("authors", [])],
@@ -258,6 +493,7 @@ class StudyExtractionStore:
         )
         studies: list[Study] = []
         outcomes: list[Outcome] = []
+        outcome_records: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
         for index, raw in enumerate(study_data):
@@ -279,9 +515,20 @@ class StudyExtractionStore:
                 ))
             study_outcomes = []
             for outcome_index, raw_outcome in enumerate(raw.get("outcomes", [])):
-                outcome_key = str(raw_outcome.get("identity_key") or outcome_identity_key(sid, str(raw_outcome.get("domain", "")), outcome_index))
+                identity = resolve_outcome_identity(sid, raw_outcome, outcome_index, self.schema.data)
+                outcome_key = str(identity["identity_key"])
                 previous_outcome = previous_outcomes.get(outcome_key, {})
-                oid = str(raw_outcome.get("outcome_id") or previous_outcome.get("outcome_id") or stable_id("outcome", sid, raw_outcome.get("domain"), outcome_index))
+                for alias in _outcome_identity_aliases(sid, raw_outcome, outcome_index, self.schema.data):
+                    if not previous_outcome:
+                        previous_outcome = previous_outcomes.get(alias, {})
+                if identity["outcome_id"]:
+                    oid = str(identity["outcome_id"])
+                elif previous_outcome.get("outcome_id"):
+                    oid = str(previous_outcome["outcome_id"])
+                elif identity["identity_source"] == "ordinal_fallback":
+                    oid = stable_id("outcome", sid, raw_outcome.get("domain"), outcome_index)
+                else:
+                    oid = stable_id("outcome", sid, outcome_key)
                 locations = self._locations(raw_outcome.get("evidence", []), sid, errors, outcome_id=oid, extraction_run_id=extraction_run_id, extraction_version=extraction_version)
                 used_legacy_direction = "effect_direction" not in raw_outcome and "direction" in raw_outcome
                 effect_direction = str(raw_outcome.get("effect_direction", raw_outcome.get("direction", "unclear")))
@@ -290,6 +537,8 @@ class StudyExtractionStore:
                     **raw_outcome, "domain": str(raw_outcome.get("domain", "not_reported")),
                     "effect_direction": effect_direction, "support_relation": support_relation,
                     "evidence": [asdict(location) for location in locations],
+                    "identity_key": outcome_key,
+                    "identity_source": identity["identity_source"],
                 }
                 normalized_outcome.pop("direction", None)
                 for validation_error in self.schema.validate_outcome(normalized_outcome):
@@ -299,12 +548,23 @@ class StudyExtractionStore:
                         "schema_version": "1.0", "study_id": sid, "outcome_id": oid,
                         "warning": "legacy_direction_migrated", "detail": "direction was migrated to effect_direction; support_relation was not inferred without configuration",
                     })
+                if identity["warning"]:
+                    warnings.append({
+                        "schema_version": "1.0", "study_id": sid, "outcome_id": oid,
+                        "warning": identity["warning"],
+                        "detail": "Outcome identity used ordinal fallback; configure outcome_identity.fields or provide outcome_id/identity_key to keep identity stable across reordering",
+                    })
                 outcome = Outcome(
                     oid, sid, normalized_outcome["domain"], effect_direction, support_relation,
                     raw_outcome.get("value"), locations, outcome_key, extraction_run_id,
                     extraction_version, "active", str(previous_outcome.get("extraction_run_id", "")),
+                    identity["identity_source"],
                 )
                 outcomes.append(outcome)
+                persisted = dict(raw_outcome)
+                persisted.pop("direction", None)
+                persisted.update(asdict(outcome))
+                outcome_records.append(persisted)
                 study_outcomes.append(oid)
             studies.append(Study(
                 sid, pub_id, label, fields, arms, study_outcomes, evidence,
@@ -322,13 +582,14 @@ class StudyExtractionStore:
         if previous_studies:
             append_jsonl(output / "studies.jsonl", ({"schema_version": EXTRACTION_SCHEMA_VERSION, **_superseded_record(item, extraction_run_id)} for item in previous_studies.values()))
         previous_study_ids = {str(item.get("study_id")) for item in previous_studies.values() if item.get("study_id")}
-        previous_outcome_rows = [item for item in read_jsonl(output / "outcomes.jsonl") if str(item.get("study_id")) in previous_study_ids and item.get("status", "active") == "active"]
+        previous_outcome_rows = [item for item in previous_outcome_rows if str(item.get("study_id")) in previous_study_ids]
+        previous_outcome_ids = {str(item.get("outcome_id")) for item in previous_outcome_rows if item.get("outcome_id")}
         if previous_outcome_rows:
             append_jsonl(output / "outcomes.jsonl", ({"schema_version": EXTRACTION_SCHEMA_VERSION, **_superseded_record(item, extraction_run_id)} for item in previous_outcome_rows))
 
         append_jsonl(output / "publications.jsonl", [{"schema_version": EXTRACTION_SCHEMA_VERSION, **asdict(publication)}])
         append_jsonl(output / "studies.jsonl", ({"schema_version": EXTRACTION_SCHEMA_VERSION, **asdict(item)} for item in studies))
-        append_jsonl(output / "outcomes.jsonl", ({"schema_version": EXTRACTION_SCHEMA_VERSION, **asdict(item)} for item in outcomes))
+        append_jsonl(output / "outcomes.jsonl", ({"schema_version": EXTRACTION_SCHEMA_VERSION, **item} for item in outcome_records))
         self._persist_links(record, publication, studies, extraction_run_id, extraction_version)
         for error in errors:
             error.update({
@@ -356,7 +617,13 @@ class StudyExtractionStore:
             })
         if warnings:
             append_jsonl(output / "extraction_warnings.jsonl", warnings)
-        affected_ids = {pub_id} | {study.study_id for study in studies} | {outcome.outcome_id for outcome in outcomes}
+        affected_ids = (
+            {pub_id}
+            | {study.study_id for study in studies}
+            | {outcome.outcome_id for outcome in outcomes}
+            | previous_study_ids
+            | previous_outcome_ids
+        )
         _mark_historical_records(output, "extraction_errors.jsonl", affected_ids, extraction_run_id)
         _mark_historical_records(output, "extraction_warnings.jsonl", affected_ids, extraction_run_id)
         state["publications"][pub_id] = {
@@ -368,6 +635,16 @@ class StudyExtractionStore:
                 "entity_type": "study", "entity_id": study.study_id, "extraction_run_id": extraction_run_id,
                 "extraction_version": extraction_version, "status": "active", "supersedes": study.supersedes,
             }
+        current_study_ids = {study.study_id for study in studies}
+        for old_study_id in previous_study_ids - current_study_ids:
+            entry = state["studies"].get(old_study_id)
+            if isinstance(entry, dict):
+                entry.update({"status": "superseded", "superseded_by": extraction_run_id})
+        current_outcome_ids = {outcome.outcome_id for outcome in outcomes}
+        for old_outcome_id in previous_outcome_ids - current_outcome_ids:
+            entry = state["outcomes"].get(old_outcome_id)
+            if isinstance(entry, dict):
+                entry.update({"status": "superseded", "superseded_by": extraction_run_id})
         for outcome in outcomes:
             state["outcomes"][outcome.outcome_id] = {
                 "entity_type": "outcome", "entity_id": outcome.outcome_id, "extraction_run_id": extraction_run_id,
