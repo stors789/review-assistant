@@ -10,8 +10,10 @@ from typing import Any
 
 from .io_utils import atomic_write_text, load_yaml, read_jsonl, write_json
 from .project import ReviewProject
-from .review_synthesis import eligible_study_ids
+from .review_synthesis import eligible_study_ids, resolve_synthesis_plan
 from .eligibility import latest_screening_decisions, resolve_eligibility
+from .screening import resolve_screening_completeness
+from .studies import evidence_location_id
 
 
 AUDIT_OUTPUTS = {
@@ -28,6 +30,38 @@ def _issue(check: str, message: str, **context: Any) -> dict[str, Any]:
     return {"check": check, "message": message, "context": context}
 
 
+def _extraction_evidence_index(project: ReviewProject) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Index current Outcome and Evidence records for independent audit resolution."""
+    outcomes = {
+        str(item.get("outcome_id")): item
+        for item in read_jsonl(project.root / "extraction" / "outcomes.jsonl")
+        if item.get("outcome_id")
+    }
+    evidence: dict[str, dict[str, Any]] = {}
+    for outcome in outcomes.values():
+        study_id_value = str(outcome.get("study_id", ""))
+        outcome_id_value = str(outcome.get("outcome_id", ""))
+        for ordinal, raw_location in enumerate(outcome.get("evidence", [])):
+            location = dict(raw_location)
+            location["evidence_id"] = evidence_location_id(study_id_value, outcome_id_value, location, ordinal)
+            location["study_id"] = study_id_value
+            location["outcome_id"] = outcome_id_value
+            evidence[location["evidence_id"]] = location
+    return outcomes, evidence
+
+
+def _side_values(claim: dict[str, Any], side: str, suffix: str) -> list[str]:
+    value = claim.get(f"{side}_{suffix}", [])
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _side_evidence_refs(claim: dict[str, Any], side: str) -> list[Any]:
+    value = claim.get(f"{side}_evidence", [])
+    return value if isinstance(value, list) else []
+
+
 class ReviewAuditor:
     def __init__(self, project: ReviewProject):
         self.project = project
@@ -42,11 +76,21 @@ class ReviewAuditor:
         eligibility = resolve_eligibility(self.project)
         links = read_jsonl(self.project.root / "extraction" / "study_record_links.jsonl")
         linked_studies = {str(item.get("study_id")) for item in links if item.get("record_id") and item.get("study_id")}
+        outcomes_by_id, evidence_by_id = _extraction_evidence_index(self.project)
+        try:
+            resolved_plan = resolve_synthesis_plan(self.project)
+        except Exception:
+            resolved_plan = {"sections": []}
+        section_specs = {str(item.get("section_id")): item for item in resolved_plan.get("sections", [])}
         issues: list[dict[str, Any]] = []
+
+        if claim_map.get("status") == "invalid":
+            issues.append(_issue("claim_map_invalid", "Claim map was not generated because structured synthesis validation failed"))
 
         for claim in claims:
             cid = claim.get("claim_id")
-            supporting = claim.get("supporting_studies", [])
+            supporting = _side_values(claim, "supporting", "studies")
+            contradicting = _side_values(claim, "contradicting", "studies")
             if claim.get("support_level") == "unsupported" or not supporting:
                 issues.append(_issue("unsupported_claim", "Claim lacks supporting study evidence", claim_id=cid))
                 issues.append(_issue("missing_citation", "Claim has no resolved study citation", claim_id=cid))
@@ -62,33 +106,89 @@ class ReviewAuditor:
             ):
                 if claim.get(flag):
                     issues.append(_issue(check, message, claim_id=cid))
-            counts = Counter(supporting)
-            duplicated = sorted(sid for sid, count in counts.items() if count > 1)
-            if duplicated:
-                issues.append(_issue("duplicate_study_counting", "A study is counted more than once in one claim", claim_id=cid, study_ids=duplicated))
-            unresolved = sorted(set(supporting) - valid_studies)
-            if unresolved:
-                issues.append(_issue("citation_key_resolution_failure", "Study citation cannot be resolved", claim_id=cid, study_ids=unresolved))
-            excluded = sorted((set(supporting) & all_studies) - valid_studies)
-            if excluded:
-                issues.append(_issue("citation_to_excluded_study", "Claim cites a study excluded by the shared eligibility gate", claim_id=cid, study_ids=excluded))
-            unlinked = sorted(set(supporting) & (all_studies - linked_studies))
-            if unlinked and eligibility.enforcement == "required":
-                issues.append(_issue("citation_to_unlinked_study", "Claim cites a study without a source-record link", claim_id=cid, study_ids=unlinked))
+
+            spec = section_specs.get(str(claim.get("section_id")), {})
+            section_studies = {str(value) for value in spec.get("included_study_ids", [])}
+            relation_explanation = claim.get("support_relation_explanation") or claim.get("relation_explanation")
+            for side in ("supporting", "contradicting"):
+                side_studies = _side_values(claim, side, "studies")
+                side_outcomes = _side_values(claim, side, "outcomes")
+                side_evidence = _side_evidence_refs(claim, side)
+                unresolved_evidence = claim.get(f"unresolved_{side}_evidence", [])
+                if not isinstance(unresolved_evidence, list):
+                    unresolved_evidence = []
+                counts = Counter(side_studies)
+                duplicated = sorted(sid for sid, count in counts.items() if count > 1)
+                if duplicated:
+                    issues.append(_issue("duplicate_study_counting", "A study is counted more than once in one claim", claim_id=cid, side=side, study_ids=duplicated))
+                unknown = sorted(set(side_studies) - all_studies)
+                if unknown:
+                    issues.append(_issue(f"invalid_{side}_study", "Claim cites an unknown study", claim_id=cid, study_ids=unknown))
+                    issues.append(_issue("citation_key_resolution_failure", "Study citation cannot be resolved", claim_id=cid, study_ids=unknown))
+                excluded = sorted((set(side_studies) & all_studies) - valid_studies)
+                if excluded:
+                    issues.append(_issue(f"invalid_{side}_study", "Claim cites a study outside the eligible evidence set", claim_id=cid, study_ids=excluded))
+                    issues.append(_issue("citation_to_excluded_study", "Claim cites a study excluded by the shared eligibility gate", claim_id=cid, study_ids=excluded))
+                outside = sorted(set(side_studies) - section_studies)
+                if outside:
+                    issues.append(_issue(f"{side}_study_outside_section", "Claim cites a study outside this section's evidence set", claim_id=cid, study_ids=outside))
+                unlinked = sorted(set(side_studies) & (all_studies - linked_studies))
+                if unlinked and eligibility.enforcement == "required":
+                    issues.append(_issue("citation_to_unlinked_study", "Claim cites a study without a source-record link", claim_id=cid, side=side, study_ids=unlinked))
+
+                if side_studies and not side_outcomes:
+                    issues.append(_issue(f"{side}_outcome_unresolved", "Every cited study must be linked to a specific outcome", claim_id=cid, study_ids=side_studies))
+                for outcome_id_value in side_outcomes:
+                    outcome = outcomes_by_id.get(outcome_id_value)
+                    if outcome is None:
+                        issues.append(_issue(f"{side}_outcome_unresolved", "Claim outcome cannot be resolved", claim_id=cid, outcome_ids=[outcome_id_value]))
+                        continue
+                    outcome_study = str(outcome.get("study_id", ""))
+                    if outcome_study not in side_studies:
+                        issues.append(_issue(f"{side}_outcome_wrong_study", "Claim outcome does not belong to a study cited on the same side", claim_id=cid, outcome_id=outcome_id_value, study_id=outcome_study))
+
+                if side_studies and not side_evidence and not unresolved_evidence:
+                    issues.append(_issue(f"{side}_evidence_unresolved", "Every critical citation must be linked to a specific evidence location", claim_id=cid, study_ids=side_studies))
+                resolved_side_evidence = False
+                for reference in side_evidence:
+                    evidence_id_value = str(reference.get("evidence_id", "")) if isinstance(reference, dict) else str(reference)
+                    evidence = evidence_by_id.get(evidence_id_value)
+                    if evidence is None:
+                        issues.append(_issue(f"{side}_evidence_unresolved", "Claim evidence location cannot be resolved", claim_id=cid, evidence_ids=[evidence_id_value]))
+                        continue
+                    resolved_side_evidence = True
+                    evidence_study = str(evidence.get("study_id", ""))
+                    evidence_outcome = str(evidence.get("outcome_id", ""))
+                    if evidence_study not in side_studies:
+                        issues.append(_issue(f"{side}_evidence_wrong_study", "Claim evidence belongs to a different study", claim_id=cid, evidence_id=evidence_id_value, study_id=evidence_study))
+                    if evidence_outcome not in side_outcomes:
+                        issues.append(_issue(f"{side}_evidence_wrong_outcome", "Claim evidence belongs to a different outcome", claim_id=cid, evidence_id=evidence_id_value, outcome_id=evidence_outcome))
+                    status = str(evidence.get("validation_status", "unverified"))
+                    if status == "failed":
+                        issues.append(_issue("invalid_quote", "A quote supporting this claim failed source verification", claim_id=cid, evidence_id=evidence_id_value))
+                    elif status != "passed":
+                        issues.append(_issue("unverified_critical_quote", "Claim depends on evidence that is not passed or manual-verified", claim_id=cid, evidence_id=evidence_id_value, validation_status=status))
+                    outcome = outcomes_by_id.get(evidence_outcome)
+                    relation = str(outcome.get("support_relation", "unclear")) if outcome else "unclear"
+                    if side == "supporting" and relation == "contradicts":
+                        issues.append(_issue("supporting_support_relation_mismatch", "Supporting evidence is structurally marked as contradicting", claim_id=cid, outcome_id=evidence_outcome))
+                        issues.append(_issue("support_relation_mismatch", "Claim side disagrees with outcome support relation", claim_id=cid, outcome_id=evidence_outcome, side=side))
+                    elif side == "contradicting" and relation == "supports":
+                        issues.append(_issue("contradicting_support_relation_mismatch", "Contradicting evidence is structurally marked as supporting", claim_id=cid, outcome_id=evidence_outcome))
+                        issues.append(_issue("support_relation_mismatch", "Claim side disagrees with outcome support relation", claim_id=cid, outcome_id=evidence_outcome, side=side))
+                    elif relation in {"unclear", "mixed", "neutral"} and not relation_explanation:
+                        issues.append(_issue(f"{side}_support_relation_unclear", "Claim must explain that an unclear, mixed, or neutral relation is not definite evidence", claim_id=cid, outcome_id=evidence_outcome, support_relation=relation))
+                if side_studies and side_outcomes and not resolved_side_evidence and not unresolved_evidence:
+                    issues.append(_issue(f"{side}_evidence_unresolved", "Specific outcome has no resolvable evidence location", claim_id=cid, outcome_ids=side_outcomes))
+
             if claim.get("unreported_field_claims"):
                 issues.append(_issue("unreported_field_hallucination", "Claim asserts fields recorded as unreported", claim_id=cid, fields=claim["unreported_field_claims"]))
             if claim.get("missing_required_qualifiers"):
                 issues.append(_issue("missing_required_qualifier", "Claim omits a configured required qualifier", claim_id=cid, qualifiers=claim["missing_required_qualifiers"]))
             if claim.get("omitted_contradicting_studies"):
                 issues.append(_issue("contradiction_omission", "Claim omits known contradictory studies", claim_id=cid, study_ids=claim["omitted_contradicting_studies"]))
-            claim_locations = [
-                location for group in claim.get("evidence_locations", [])
-                for location in group.get("locations", [])
-            ]
-            if any(location.get("validation_status") == "failed" for location in claim_locations):
-                issues.append(_issue("invalid_quote", "A quote supporting this claim failed source verification", claim_id=cid))
-            if supporting and (not claim_locations or all(location.get("validation_status") == "unverified" for location in claim_locations)):
-                issues.append(_issue("unverified_critical_quote", "Claim depends only on unverified quote evidence", claim_id=cid))
+            if claim.get("critical_claim") and supporting and not _side_evidence_refs(claim, "supporting"):
+                issues.append(_issue("supporting_evidence_unresolved", "Critical supporting claim lacks a concrete evidence location", claim_id=cid))
 
         extraction_errors = read_jsonl(self.project.root / "extraction" / "extraction_errors.jsonl")
         for error in extraction_errors:
@@ -121,6 +221,30 @@ class ReviewAuditor:
             if link.get("protocol_hash") and link.get("protocol_hash") != protocol_hash:
                 issues.append(_issue("protocol_hash_mismatch", "Study link was produced under a different protocol", study_id=link.get("study_id"), actual=link.get("protocol_hash"), expected=protocol_hash))
 
+        section_validation_path = self.project.root / "synthesis" / "section_validation.json"
+        section_validation = json.loads(section_validation_path.read_text(encoding="utf-8")) if section_validation_path.exists() else {}
+        if not section_validation_path.exists():
+            issues.append(_issue("section_coverage_missing", "Structured section coverage validation artifact is missing"))
+        elif section_validation.get("protocol_hash") and section_validation.get("protocol_hash") != protocol_hash:
+            issues.append(_issue("protocol_hash_mismatch", "Section validation was produced under a different protocol", actual=section_validation.get("protocol_hash"), expected=protocol_hash))
+        if section_validation.get("status") == "failed":
+            issues.append(_issue("section_coverage_incomplete", "Section text and claim map coverage validation failed"))
+        validated_sections = {str(item.get("section_id")): item for item in section_validation.get("sections", []) if isinstance(item, dict)}
+        for section_id, spec in section_specs.items():
+            item = validated_sections.get(section_id)
+            if item is None:
+                issues.append(_issue("section_coverage_missing", "Protocol-required section lacks coverage metadata", section_id=section_id))
+                continue
+            if item.get("evidence_status") == "insufficient" or not spec.get("included_study_ids"):
+                if item.get("writer_called"):
+                    issues.append(_issue("empty_evidence_writer_called", "A section without evidence invoked a writer", section_id=section_id))
+                if item.get("claim_count", 0):
+                    issues.append(_issue("empty_evidence_section_has_claims", "A section without evidence contains claims", section_id=section_id))
+            elif item.get("claim_count", 0) == 0:
+                issues.append(_issue("nonempty_section_zero_claims", "A non-empty evidence section contains no claims", section_id=section_id))
+            if item.get("unmapped_citations") or item.get("unmapped_sentences") or item.get("coverage_status") != "passed":
+                issues.append(_issue("claim_coverage_incomplete", "Section citations or substantive sentences are not fully mapped", section_id=section_id, unmapped_citations=item.get("unmapped_citations", []), unmapped_sentences=item.get("unmapped_sentences", [])))
+
         memo_ids: set[str] = set()
         memo_dir = self.project.root / "evidence" / "evidence_memos"
         if memo_dir.exists():
@@ -146,17 +270,14 @@ class ReviewAuditor:
             issues.append(_issue("empty_search_plan", "No enabled searches or seed records are configured"))
 
         if eligibility.enforcement == "required":
-            if eligibility.incomplete_record_ids or eligibility.illegal_states:
-                issues.append(_issue("screening_required_but_incomplete", "Required screening has missing, uncertain, or illegal final decisions", record_ids=sorted(eligibility.incomplete_record_ids), illegal_states=eligibility.illegal_states))
+            completeness = resolve_screening_completeness(self.project)
+            incomplete_ids = sorted(set(completeness["title_abstract_missing_ids"]) | set(completeness["title_abstract_uncertain_ids"]) | set(completeness["fulltext_missing_ids"]) | set(completeness["fulltext_uncertain_ids"]) | set(completeness["illegal_state_ids"]))
+            if incomplete_ids:
+                issues.append(_issue("screening_required_but_incomplete", "Required screening has missing, uncertain, or illegal final decisions", record_ids=incomplete_ids, title_abstract_missing_ids=completeness["title_abstract_missing_ids"], title_abstract_uncertain_ids=completeness["title_abstract_uncertain_ids"], fulltext_missing_ids=completeness["fulltext_missing_ids"], fulltext_uncertain_ids=completeness["fulltext_uncertain_ids"], illegal_state_ids=completeness["illegal_state_ids"]))
             if eligibility.unlinked_included_record_ids:
                 issues.append(_issue("included_record_lacking_study_link", "A full-text included record has no study link", record_ids=sorted(eligibility.unlinked_included_record_ids)))
             if eligibility.unlinked_study_ids:
                 issues.append(_issue("study_lacking_source_record", "An extracted study has no source record while screening is required", study_ids=sorted(eligibility.unlinked_study_ids)))
-            latest = latest_screening_decisions(self.project)
-            title_includes = {rid for (rid, stage), item in latest.items() if stage == "title_abstract" and item.get("decision") == "include"}
-            missing_fulltext_decision = sorted(rid for rid in title_includes if (rid, "fulltext") not in latest)
-            if missing_fulltext_decision:
-                issues.append(_issue("included_record_lacking_full_text", "Title/abstract included record lacks a full-text decision", record_ids=missing_fulltext_decision))
 
         categories: dict[str, list[dict[str, Any]]] = {key: [] for key in AUDIT_OUTPUTS}
         for item in issues:

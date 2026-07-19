@@ -107,12 +107,57 @@ class ReviewAuditTests(unittest.TestCase):
         self.assertIn("correlation_to_causation_inflation", summary["counts"])
 
     def test_writer_unknown_study_reference_fails_audit(self):
-        synthesize_review(self.project, lambda **kwargs: {
-            "section_text": "Unknown evidence [study_unknown].",
-            "claims": [{"sentence": "Unknown evidence [study_unknown].", "supporting_study_ids": ["study_unknown"]}],
-        })
+        with self.assertRaisesRegex(ValueError, "coverage failed"):
+            synthesize_review(self.project, lambda **kwargs: {
+                "section_text": "Unknown evidence [study_unknown].",
+                "claims": [{"sentence": "Unknown evidence [study_unknown].", "supporting_study_ids": ["study_unknown"]}],
+            })
+
+    def test_contradicting_study_outcome_and_evidence_are_checked(self):
+        path = self.project.root / "synthesis" / "claim_map.json"
+        payload = json.loads(path.read_text())
+        claim = payload["claims"][0]
+        claim["contradicting_studies"] = ["study_unknown"]
+        claim["contradicting_outcomes"] = ["outcome_unknown"]
+        claim["contradicting_evidence"] = [{"evidence_id": "evidence_unknown"}]
+        write_json(path, payload)
         summary = ReviewAuditor(self.project).run()
-        self.assertIn("citation_key_resolution_failure", summary["counts"])
+        self.assertIn("invalid_contradicting_study", summary["counts"])
+        self.assertIn("contradicting_outcome_unresolved", summary["counts"])
+        self.assertIn("contradicting_evidence_unresolved", summary["counts"])
+
+    def test_supporting_evidence_from_another_outcome_cannot_be_borrowed(self):
+        path = self.project.root / "synthesis" / "claim_map.json"
+        payload = json.loads(path.read_text())
+        claim = payload["claims"][0]
+        other = next(item for item in payload["claims"] if item["claim_id"] != claim["claim_id"]) if len(payload["claims"]) > 1 else None
+        if other is None:
+            # The fixture writer emits one claim, so use the contradiction side
+            # as a source of an unrelated evidence location.
+            unrelated_evidence = claim["contradicting_evidence"][0]
+        else:
+            unrelated_evidence = other["supporting_evidence"][0]
+        claim["supporting_evidence"] = [unrelated_evidence]
+        write_json(path, payload)
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("supporting_evidence_wrong_study", summary["counts"])
+
+    def test_support_relation_mismatch_is_not_hidden(self):
+        path = self.project.root / "synthesis" / "claim_map.json"
+        payload = json.loads(path.read_text())
+        claim = payload["claims"][0]
+        contradicting_outcome = claim["contradicting_outcomes"][0]
+        contradicting_evidence = claim["contradicting_evidence"][0]
+        contradicting_study = claim["contradicting_studies"][0]
+        claim["supporting_studies"] = [contradicting_study]
+        claim["supporting_outcomes"] = [contradicting_outcome]
+        claim["supporting_evidence"] = [contradicting_evidence]
+        claim["contradicting_studies"] = []
+        claim["contradicting_outcomes"] = []
+        claim["contradicting_evidence"] = []
+        write_json(path, payload)
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("supporting_support_relation_mismatch", summary["counts"])
 
     def test_protocol_change_after_synthesis_fails_audit(self):
         protocol = load_yaml(self.project.root / "protocol.yaml")

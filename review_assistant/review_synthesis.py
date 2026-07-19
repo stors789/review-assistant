@@ -446,7 +446,13 @@ def synthesize_review(
         result = write_section(spec, by_section.get(spec["section_id"], []), {"protocol": protocol, "model": selected_model}, "review", writer)
         content = result["section_text"]
         structured_sections.append({"section_id": spec["section_id"], **result})
-        section_validations.append(dict(result.get("section_validation", {})))
+        section_validation = dict(result.get("section_validation", {}))
+        section_validation.update({
+            "evidence_status": result.get("evidence_status", "available"),
+            "writer_called": bool(result.get("writer_called", False)),
+            "writer_type": result.get("writer_type", "none"),
+        })
+        section_validations.append(section_validation)
         atomic_write_text(draft_dir / f"{spec['section_id']}.md", content + "\n")
         sections.extend([f"## {spec['title']}", "", content, ""])
         if result.get("section_validation", {}).get("coverage_status") == "failed" and not offline_placeholder:
@@ -749,6 +755,7 @@ def _analyze_claim(
         "missing_contradicting_outcomes": missing_contradicting_outcomes,
         "linkage_status": linkage_status,
         "critical_claim": bool(supporting or contradicting),
+        "support_relation_explanation": str(raw.get("support_relation_explanation", raw.get("relation_explanation", ""))),
         "support_level": support_level, "required_qualifiers": required,
         "missing_required_qualifiers": [value for value in required if str(value).casefold() not in sentence.casefold()],
         "evidence_locations": explicit_evidence_locations,
