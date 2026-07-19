@@ -295,7 +295,10 @@ class ReviewLLMWriter:
                 "claims": [{
                     "sentence": "claim sentence", "supporting_study_ids": [], "contradicting_study_ids": [],
                     "required_qualifiers": [], "scope_status": "inside|adjacent|outside|unclear",
-                    "population_levels": [], "causal_strength": "descriptive|associational|causal|unclear",
+                    "population_levels": [], "claimed_population_levels": [],
+                    "causal_strength": "descriptive|associational|causal|unclear",
+                    "animal_to_human": False, "population_overgeneralization": False,
+                    "causal_inflation": False, "asserted_fields": [], "unreported_field_claims": [],
                 }],
             },
         }, ensure_ascii=False, indent=2)
@@ -332,9 +335,16 @@ def _analyze_claim(
     supporting = [str(value) for value in raw.get("supporting_study_ids", raw.get("supporting_studies", []))]
     contradicting = [str(value) for value in raw.get("contradicting_study_ids", raw.get("contradicting_studies", []))]
     required = list(raw.get("required_qualifiers", section_spec.get("required_qualifiers", [])))
+    study_rows = {
+        str(item.get("study_id")): item for item in read_jsonl(project.root / "extraction" / "studies.jsonl")
+        if item.get("study_id")
+    }
+    supporting_rows = [study_rows[sid] for sid in supporting if sid in study_rows]
     scope = str(raw.get("scope_status", raw.get("protocol_scope_status", "unclear")))
     if scope not in {"inside", "adjacent", "outside", "unclear"}:
         scope = "unclear"
+    if scope == "unclear":
+        scope = _infer_claim_scope(project, supporting_rows)
     known_support = [sid for sid in supporting if sid in valid_studies]
     omitted_contradictions = sorted({
         sid for group in contradiction_groups if group.get("has_directional_inconsistency")
@@ -342,6 +352,39 @@ def _analyze_claim(
         for sid in group.get("study_ids", []) if sid not in supporting + contradicting
     })
     support_level = str(raw.get("support_level") or ("unsupported" if not supporting else ("mixed" if contradicting else "supported")))
+    population_levels = list(raw.get("population_levels", []))
+    if not population_levels:
+        population_levels = sorted({
+            str(value) for study in supporting_rows
+            if (value := _claim_field(study, "population.evidence_level", _claim_field(study, "population.level", "")))
+        })
+    claimed_population_levels = list(raw.get("claimed_population_levels", []))
+    population_overgeneralization = bool(raw.get("population_overgeneralization", False))
+    animal_to_human = bool(raw.get("animal_to_human", False))
+    analysis_config = project.protocol.data.get("claim_analysis", {})
+    hierarchy = list(analysis_config.get("population_hierarchy", [])) if isinstance(analysis_config, dict) else []
+    if hierarchy and population_levels and claimed_population_levels:
+        ranks = {str(value): index for index, value in enumerate(hierarchy)}
+        evidence_ranks = [ranks[value] for value in population_levels if value in ranks]
+        claim_ranks = [ranks[value] for value in claimed_population_levels if value in ranks]
+        if evidence_ranks and claim_ranks and max(claim_ranks) > max(evidence_ranks):
+            population_overgeneralization = True
+    for pair in analysis_config.get("cross_population_pairs", []) if isinstance(analysis_config, dict) else []:
+        if isinstance(pair, dict) and pair.get("evidence") in population_levels and pair.get("claim") in claimed_population_levels:
+            animal_to_human = True
+    causal_strength = str(raw.get("causal_strength", "unclear"))
+    known_study_strengths = {
+        str(value) for study in supporting_rows
+        if (value := _claim_field(study, "study.causal_strength", "")) in {"descriptive", "associational", "causal"}
+    }
+    causal_inflation = bool(raw.get("causal_inflation", False)) or (
+        causal_strength == "causal" and bool(known_study_strengths) and known_study_strengths != {"causal"}
+    )
+    asserted_fields = [str(value) for value in raw.get("asserted_fields", [])]
+    derived_unreported = [
+        field for field in asserted_fields if supporting_rows
+        and all(_claim_field(study, field, "not_reported") in {None, "", "not_reported"} for study in supporting_rows)
+    ]
     return {
         "claim_id": str(raw.get("claim_id") or stable_id("claim", section_id, sentence)),
         "section_id": section_id, "sentence": sentence,
@@ -350,14 +393,48 @@ def _analyze_claim(
         "missing_required_qualifiers": [value for value in required if str(value).casefold() not in sentence.casefold()],
         "evidence_locations": [{"study_id": sid, "locations": locations[sid]} for sid in supporting if sid in locations],
         "protocol_scope_status": scope,
-        "population_evidence_levels": list(raw.get("population_levels", [])),
-        "animal_to_human": bool(raw.get("animal_to_human", False)),
-        "population_overgeneralization": bool(raw.get("population_overgeneralization", False)),
-        "causal_inflation": bool(raw.get("causal_inflation", False)),
-        "causal_strength": str(raw.get("causal_strength", "unclear")),
-        "unreported_field_claims": list(raw.get("unreported_field_claims", [])),
+        "population_evidence_levels": population_levels,
+        "claimed_population_levels": claimed_population_levels,
+        "animal_to_human": animal_to_human,
+        "population_overgeneralization": population_overgeneralization,
+        "causal_inflation": causal_inflation,
+        "causal_strength": causal_strength,
+        "unreported_field_claims": sorted(set(raw.get("unreported_field_claims", [])) | set(derived_unreported)),
         "omitted_contradicting_studies": omitted_contradictions,
         "invalid_supporting_studies": sorted(set(supporting) - valid_studies),
         "invalid_contradicting_studies": sorted(set(contradicting) - valid_studies),
         "audit_status": "pending",
     }
+
+
+def _claim_field(study: dict[str, Any], path: str, default: Any = None) -> Any:
+    fields = study.get("fields", {})
+    if path in fields:
+        return fields[path]
+    if path in study:
+        return study[path]
+    return default
+
+
+def _infer_claim_scope(project: ReviewProject, studies: list[dict[str, Any]]) -> str:
+    statuses = {
+        str(value) for study in studies
+        if (value := _claim_field(study, "protocol.scope_status", _claim_field(study, "intervention.scope", "")))
+    }
+    if "outside" in statuses:
+        return "outside"
+    if "adjacent" in statuses:
+        return "adjacent"
+    if statuses.intersection({"inside", "core"}):
+        return "inside"
+    scope = project.protocol.data.get("scope", {})
+    core = set(str(value) for value in scope.get("core_interventions", []))
+    adjacent = set(str(value) for value in scope.get("adjacent_interventions", []))
+    interventions = {
+        str(value) for study in studies if (value := _claim_field(study, "intervention.summary", ""))
+    }
+    if interventions & adjacent:
+        return "adjacent"
+    if interventions and interventions.issubset(core):
+        return "inside"
+    return "unclear"

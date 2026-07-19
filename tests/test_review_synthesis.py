@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from review_assistant.io_utils import load_yaml, write_yaml
+from review_assistant.io_utils import append_jsonl, load_yaml, read_jsonl, write_yaml
 from review_assistant.project import ReviewProject
 from review_assistant.review_synthesis import build_evidence_memos, fixture_writer, resolve_synthesis_plan, synthesize_review
 from review_assistant.studies import StudyExtractionStore
@@ -108,6 +108,35 @@ class ReviewSynthesisTests(unittest.TestCase):
         self.assertIn("PLACEHOLDER SYNTHESIS", report)
         metadata = json.loads((self.project.root / "synthesis" / "synthesis_metadata.json").read_text())
         self.assertTrue(metadata["placeholder"])
+
+    def test_claim_analysis_derives_scope_population_causality_and_unreported_fields(self):
+        study_id = resolve_synthesis_plan(self.project)["sections"][0]["included_study_ids"][0]
+        study = next(item for item in read_jsonl(self.project.root / "extraction" / "studies.jsonl") if item["study_id"] == study_id)
+        study["fields"].update({
+            "intervention.scope": "adjacent", "population.evidence_level": "configured-lower",
+            "study.causal_strength": "associational", "configured.unreported": "not_reported",
+        })
+        append_jsonl(self.project.root / "extraction" / "studies.jsonl", [study])
+        protocol = load_yaml(self.project.root / "protocol.yaml")
+        protocol["claim_analysis"] = {
+            "population_hierarchy": ["configured-lower", "configured-higher"],
+            "cross_population_pairs": [{"evidence": "configured-lower", "claim": "configured-higher"}],
+        }
+        write_yaml(self.project.root / "protocol.yaml", protocol)
+        synthesize_review(self.project, lambda **kwargs: {
+            "section_text": f"Configured extrapolated claim [{study_id}].",
+            "claims": [{
+                "sentence": f"Configured extrapolated claim [{study_id}].",
+                "supporting_study_ids": [study_id], "claimed_population_levels": ["configured-higher"],
+                "causal_strength": "causal", "asserted_fields": ["configured.unreported"],
+            }],
+        })
+        claim = json.loads((self.project.root / "synthesis" / "claim_map.json").read_text())["claims"][0]
+        self.assertEqual(claim["protocol_scope_status"], "adjacent")
+        self.assertTrue(claim["population_overgeneralization"])
+        self.assertTrue(claim["animal_to_human"])
+        self.assertTrue(claim["causal_inflation"])
+        self.assertEqual(claim["unreported_field_claims"], ["configured.unreported"])
 
 
 if __name__ == "__main__":
