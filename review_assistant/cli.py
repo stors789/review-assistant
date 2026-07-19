@@ -219,12 +219,12 @@ def run_pipeline(project: ReviewProject, args: argparse.Namespace) -> int:
         return 1
     actions = {
         "search": lambda: (SearchOrchestrator(project, default_search_runners()).run(allow_empty=args.allow_empty_search), ["search/search_log.jsonl", "search/deduplicated_records.jsonl"]),
-        "screen": lambda: (_require_screening(project), ["screening/decision_history.jsonl", "screening/prisma_counts.json"]),
-        "fulltext": lambda: (_require_fulltext(project), ["fulltext", "extraction/record_publication_links.jsonl"]),
-        "extract": lambda: (_require(project.root / "extraction" / "studies.jsonl", "Run `review-assistant review extract --input ...` after full-text screening"), ["extraction/publications.jsonl", "extraction/studies.jsonl", "extraction/outcomes.jsonl"]),
+        "screen": lambda: (_require_screening(project), ["screening/decision_history.jsonl", "screening/prisma_counts.json", "screening/completeness.json"]),
+        "fulltext": lambda: (_require_fulltext(project), ["fulltext/status.json", "extraction/record_publication_links.jsonl"]),
+        "extract": lambda: (_require(project.root / "extraction" / "studies.jsonl", "Run `review-assistant review extract --input ...` after full-text screening"), ["extraction/publications.jsonl", "extraction/studies.jsonl", "extraction/outcomes.jsonl", "extraction/extraction_runs.jsonl", "extraction/current_extraction_state.json"]),
         "matrix": lambda: (EvidenceMatrixBuilder(project).build(), ["evidence/evidence_matrix.csv", "evidence/evidence_matrix.json"]),
         "analyze": lambda: (ContradictionAnalyzer(project).analyze(), ["evidence/contradiction_groups.json", "evidence/heterogeneity_report.md"]),
-        "synthesize": lambda: (synthesize_review(project, fixture_writer if args.offline_fixture_writer else None, model=args.model, offline_placeholder=args.offline_placeholder), ["synthesis/review_draft.md", "synthesis/claim_map.json", "synthesis/synthesis_metadata.json"]),
+        "synthesize": lambda: (synthesize_review(project, fixture_writer if args.offline_fixture_writer else None, model=args.model, offline_placeholder=args.offline_placeholder), ["synthesis/review_draft.md", "synthesis/claim_map.json", "synthesis/section_validation.json", "synthesis/synthesis_metadata.json"]),
         "audit": lambda: (ReviewAuditor(project).run(), ["audit/audit_summary.json"]),
     }
     try:
