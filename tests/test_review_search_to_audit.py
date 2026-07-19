@@ -1,5 +1,6 @@
 import csv
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -92,11 +93,13 @@ class SearchToAuditEndToEndTests(unittest.TestCase):
             self.assertEqual(main(["review", "synthesize", "--project", str(self.root), "--offline-fixture-writer"]), 0)
             self.assertEqual(writer.call_count, 1)
             self.assertEqual(writer.call_args.kwargs["section_spec"]["section_id"], "S01")
-        self.assertEqual(main(["review", "audit", "--project", str(self.root), "--strict"]), 0)
+        strict_v1 = main(["review", "audit", "--project", str(self.root), "--strict"])
+        self.assertEqual(strict_v1, 0)
 
         plan = json.loads((self.root / "synthesis" / "resolved_synthesis_plan.json").read_text())
         matrix = json.loads((self.root / "evidence" / "evidence_matrix.json").read_text())
         claims = json.loads((self.root / "synthesis" / "claim_map.json").read_text())["claims"]
+        claims_v1_count = len(claims)
         validation = json.loads((self.root / "synthesis" / "section_validation.json").read_text())
         audit = json.loads((self.root / "audit" / "audit_summary.json").read_text())
         self.assertEqual(plan["sections"][0]["included_study_ids"].__len__(), 1)
@@ -134,7 +137,8 @@ class SearchToAuditEndToEndTests(unittest.TestCase):
             from review_assistant.review_synthesis import fixture_writer as real_fixture_writer
             writer.side_effect = real_fixture_writer
             self.assertEqual(main(["review", "synthesize", "--project", str(self.root), "--offline-fixture-writer"]), 0)
-        self.assertEqual(main(["review", "audit", "--project", str(self.root), "--strict"]), 0)
+        strict_v2 = main(["review", "audit", "--project", str(self.root), "--strict"])
+        self.assertEqual(strict_v2, 0)
 
         all_outcomes = read_jsonl(self.root / "extraction" / "outcomes.jsonl")
         current_outcome_rows = current_outcomes(ReviewProject.load(self.root))
@@ -155,6 +159,10 @@ class SearchToAuditEndToEndTests(unittest.TestCase):
         self.assertNotIn("A sufficiently long verified target quotation.", memo_text)
         self.assertIn("A sufficiently long revised target quotation.", memo_text)
 
+        claims_v2 = json.loads((self.root / "synthesis" / "claim_map.json").read_text())["claims"]
+        validation_v2 = json.loads((self.root / "synthesis" / "section_validation.json").read_text())
+        audit_v2 = json.loads((self.root / "audit" / "audit_summary.json").read_text())
+
         self.assertEqual(main([
             "review", "run", "--project", str(self.root), "--from-stage", "matrix", "--to-stage", "audit",
             "--offline-fixture-writer", "--strict",
@@ -162,6 +170,51 @@ class SearchToAuditEndToEndTests(unittest.TestCase):
         run_roots = sorted((self.root / "runs").iterdir())
         metadata = json.loads((run_roots[-1] / "metadata.json").read_text())
         self.assertEqual(metadata["status"], "completed")
+
+        if os.environ.get("REVIEW_BOUNDARY_REPORT") == "1":
+            complete_claims = [claim for claim in claims_v2 if claim.get("linkage_status") == "complete"]
+            complete_studies = sorted({
+                study_id
+                for claim in complete_claims
+                for study_id in claim.get("supporting_studies", []) + claim.get("contradicting_studies", [])
+            })
+            complete_outcomes = sorted({
+                outcome_id
+                for claim in complete_claims
+                for outcome_id in claim.get("supporting_outcomes", []) + claim.get("contradicting_outcomes", [])
+            })
+            unknown_tokens = sorted({
+                token
+                for section in validation_v2.get("sections", [])
+                for token in section.get("unknown_citation_tokens", [])
+            })
+            filter_violation_keys = {
+                "supporting_outcome_outside_section_filter",
+                "contradicting_outcome_outside_section_filter",
+                "outcome_domain_outside_section",
+                "effect_direction_outside_section",
+                "support_relation_outside_section",
+            }
+            filter_violations = sum(
+                count for key, count in audit_v2.get("counts", {}).items() if key in filter_violation_keys
+            )
+            print("REVIEW_BOUNDARY_REPORT " + json.dumps({
+                "initial_current_outcome_ids": [item["outcome_id"] for item in initial_active],
+                "current_outcome_ids_after_reorder": [item["outcome_id"] for item in current_outcome_rows],
+                "outcome_ids_preserved": initial_ids == reordered_ids,
+                "active_outcomes": len(current_outcome_rows),
+                "superseded_outcomes": sum(item.get("status") == "superseded" for item in all_outcomes),
+                "claims_v1": claims_v1_count,
+                "claims_v2": len(claims_v2),
+                "studies_with_complete_linkage": len(complete_studies),
+                "outcomes_with_complete_linkage": len(complete_outcomes),
+                "unknown_citation_tokens": unknown_tokens,
+                "section_filter_violations": filter_violations,
+                "audit_v1": {"status": audit["status"], "issue_count": audit["issue_count"]},
+                "audit_v2": {"status": audit_v2["status"], "issue_count": audit_v2["issue_count"]},
+                "strict_v1": strict_v1,
+                "strict_v2": strict_v2,
+            }, ensure_ascii=False, sort_keys=True))
 
 
 if __name__ == "__main__":
