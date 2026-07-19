@@ -75,6 +75,20 @@ class StudyExtractionTests(unittest.TestCase):
         self.assertTrue(all(error.get("status") == "superseded" for error in historical))
         self.assertFalse(any(error.get("error") == "quote_verification_failed" for error in current_extraction_errors(self.project)))
 
+    def test_current_outcomes_require_state_current_extraction_run(self):
+        record = {
+            "publication": {"title": "Run state publication"},
+            "studies": [{"fields": {}, "outcomes": [{"domain": "configured", "evidence": []}] }],
+        }
+        StudyExtractionStore(self.project).ingest(record)
+        state_path = self.project.root / "extraction" / "current_extraction_state.json"
+        state = json.loads(state_path.read_text())
+        state["current_extraction_run_id"] = "run_that_is_not_current"
+        state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+
+        self.assertEqual(current_outcomes(self.project), [])
+        self.assertEqual(current_evidence(self.project), [])
+
     def test_configured_outcome_identity_survives_reordering_and_tracks_deletion(self):
         schema = load_yaml(self.project.root / "extraction_schema.yaml")
         schema["outcome_identity"] = {"fields": ["domain", "timepoint"], "fallback": "domain_and_ordinal"}

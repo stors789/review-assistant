@@ -288,11 +288,15 @@ def _current_entity_rows(project: ReviewProject, entity_type: str) -> list[dict[
     collection = _ENTITY_COLLECTIONS[entity_type]
     state_map = state.get(collection, {}) if isinstance(state, dict) else {}
     use_state_map = isinstance(state_map, dict) and bool(state_map)
+    state_current_run = str(state.get("current_extraction_run_id", "")) if isinstance(state, dict) else ""
     selected: dict[str, dict[str, Any]] = {}
     for row in read_jsonl(output / _ENTITY_FILES[entity_type]):
         entity_id = _entity_id(row, entity_type)
         if not entity_id or str(row.get("status", "active")) != "active":
             continue
+        if state_path.exists() and entity_type == "outcome" and state_current_run:
+            if str(row.get("extraction_run_id", "")) != state_current_run:
+                continue
         state_entry = state_map.get(entity_id) if use_state_map else None
         if use_state_map:
             if not isinstance(state_entry, dict) or str(state_entry.get("status", "active")) != "active":
