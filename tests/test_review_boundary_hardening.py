@@ -165,6 +165,11 @@ class ReviewBoundaryHardeningTests(unittest.TestCase):
         }, [study_id])
         self.assertIn("study_fake", unknown["unknown_citation_tokens"])
         self.assertIn("unknown_study_citation_in_text", unknown["errors"])
+        unknown_sentence = f"The configured result was reported [{study_id}] and [study_fake]."
+        with self.assertRaisesRegex(ValueError, "coverage failed"):
+            synthesize_review(self.project, self._writer(unknown_sentence, {
+                "sentence": unknown_sentence, "supporting_study_ids": [study_id],
+            }))
 
         synthesize_review(self.project, self._writer(sentence, {
             "sentence": sentence, "supporting_study_ids": [study_id],

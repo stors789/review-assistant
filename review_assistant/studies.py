@@ -409,7 +409,7 @@ def current_extraction_errors(project: ReviewProject) -> list[dict[str, Any]]:
     state = _load_extraction_state(output)
     values: list[dict[str, Any]] = []
     for error in read_jsonl(output / "extraction_errors.jsonl"):
-        if error.get("status") in {"superseded", "resolved"}:
+        if error.get("status") in INACTIVE_ENTITY_STATUSES:
             continue
         entity_type = str(error.get("entity_type", ""))
         entity_id = str(error.get("entity_id") or error.get("outcome_id") or error.get("study_id") or error.get("publication_id") or "")

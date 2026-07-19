@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from review_assistant.cli import main
 from review_assistant.io_utils import load_yaml, read_jsonl, write_yaml
+from review_assistant.project import ReviewProject
+from review_assistant.studies import current_outcomes
 
 
 class SearchToAuditEndToEndTests(unittest.TestCase):
@@ -108,6 +110,50 @@ class SearchToAuditEndToEndTests(unittest.TestCase):
         self.assertEqual(validation["sections"][1]["unmapped_sentences"], [])
         self.assertEqual(audit["status"], "passed")
         self.assertEqual(audit["issue_count"], 0)
+
+        initial_active = current_outcomes(ReviewProject.load(self.root))
+        initial_ids = {item["outcome_id"] for item in initial_active}
+        initial_target_evidence = next(
+            location["evidence_id"]
+            for item in initial_active if item["outcome_id"] == "outcome-target"
+            for location in item["evidence"]
+        )
+
+        revised = json.loads(extraction.read_text())
+        revised["studies"][0]["outcomes"] = [
+            revised["studies"][0]["outcomes"][1],
+            {**revised["studies"][0]["outcomes"][0], "evidence": [{
+                "quote": "A sufficiently long revised target quotation.", "page": "3", "manual_verified": True,
+            }]},
+        ]
+        extraction.write_text(json.dumps(revised), encoding="utf-8")
+        self.assertEqual(main(["review", "extract", "--project", str(self.root), "--input", str(extraction)]), 0)
+        self.assertEqual(main(["review", "matrix", "build", "--project", str(self.root)]), 0)
+        self.assertEqual(main(["review", "evidence", "analyze", "--project", str(self.root)]), 0)
+        with patch("review_assistant.cli.fixture_writer") as writer:
+            from review_assistant.review_synthesis import fixture_writer as real_fixture_writer
+            writer.side_effect = real_fixture_writer
+            self.assertEqual(main(["review", "synthesize", "--project", str(self.root), "--offline-fixture-writer"]), 0)
+        self.assertEqual(main(["review", "audit", "--project", str(self.root), "--strict"]), 0)
+
+        all_outcomes = read_jsonl(self.root / "extraction" / "outcomes.jsonl")
+        current_outcome_rows = current_outcomes(ReviewProject.load(self.root))
+        reordered_ids = {item["outcome_id"] for item in current_outcome_rows}
+        self.assertEqual(reordered_ids, initial_ids)
+        self.assertEqual([item["outcome_id"] for item in current_outcome_rows], ["outcome-other", "outcome-target"])
+        revised_target_evidence = next(
+            location["evidence_id"]
+            for item in current_outcome_rows if item["outcome_id"] == "outcome-target"
+            for location in item["evidence"]
+        )
+        self.assertNotEqual(revised_target_evidence, initial_target_evidence)
+        self.assertTrue(any(
+            item.get("outcome_id") == "outcome-target" and item.get("status") == "superseded"
+            for item in all_outcomes
+        ))
+        memo_text = "\n".join(path.read_text(encoding="utf-8") for path in (self.root / "evidence" / "evidence_memos").glob("*.md"))
+        self.assertNotIn("A sufficiently long verified target quotation.", memo_text)
+        self.assertIn("A sufficiently long revised target quotation.", memo_text)
 
         self.assertEqual(main([
             "review", "run", "--project", str(self.root), "--from-stage", "matrix", "--to-stage", "audit",

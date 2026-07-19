@@ -350,7 +350,17 @@ def detect_study_citation_tokens(
     """Detect known and unknown study-like citation tokens in review prose."""
     known = {str(value) for value in known_ids if str(value)}
     detected: set[str] = set()
-    patterns = [DEFAULT_STUDY_CITATION_PATTERN, *[str(value) for value in (citation_patterns or []) if str(value)]]
+    known_prefixes = {
+        value.split("_", 1)[0]
+        for value in known
+        if "_" in value and re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*", value.split("_", 1)[0])
+    }
+    derived_patterns = [rf"\b{re.escape(prefix)}_[A-Za-z0-9_-]+\b" for prefix in sorted(known_prefixes)]
+    patterns = [
+        DEFAULT_STUDY_CITATION_PATTERN,
+        *derived_patterns,
+        *[str(value) for value in (citation_patterns or []) if str(value)],
+    ]
     for pattern in patterns:
         try:
             detected.update(match.group(0) for match in re.finditer(pattern, str(text)))
@@ -685,12 +695,14 @@ def fixture_writer(**kwargs: Any) -> dict[str, Any]:
     cited_studies: list[str] = []
     for item in items:
         study_id_value = str(item["study_id"])
+        section_filter = section.get("selection_rule", section.get("evidence_filter", {}))
         selected = next(
             (
                 (outcome, evidence)
                 for outcome in item.get("outcomes", [])
                 for evidence in outcome.get("evidence", [])
                 if outcome.get("outcome_id") and evidence.get("evidence_id")
+                and outcome_matches_section_filter(outcome, section_filter)["matches"]
             ),
             None,
         )
