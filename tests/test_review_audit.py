@@ -7,7 +7,7 @@ from review_assistant.io_utils import load_yaml, write_json, write_yaml
 from review_assistant.project import ReviewProject
 from review_assistant.review_audit import ReviewAuditor
 from review_assistant.review_evidence import ContradictionAnalyzer
-from review_assistant.review_synthesis import synthesize_review
+from review_assistant.review_synthesis import fixture_writer, synthesize_review
 from review_assistant.studies import StudyExtractionStore
 
 
@@ -27,7 +27,7 @@ class ReviewAuditTests(unittest.TestCase):
             {"label": "b", "fields": {}, "outcomes": [{"domain": "x", "effect_direction": "no_change", "support_relation": "contradicts", "evidence": [{"quote": "q"}]}]},
         ]})
         ContradictionAnalyzer(self.project).analyze()
-        synthesize_review(self.project)
+        synthesize_review(self.project, fixture_writer)
 
     def tearDown(self):
         self.tmp.cleanup()

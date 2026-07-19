@@ -13,7 +13,7 @@ from .project import ReviewProject, discover_templates
 from .review_audit import ReviewAuditor
 from .review_evidence import ContradictionAnalyzer, EvidenceMatrixBuilder
 from .review_search import SearchOrchestrator
-from .review_synthesis import synthesize_review
+from .review_synthesis import fixture_writer, synthesize_review
 from .run_state import RunState
 from .screening import ScreeningStore
 from .studies import StudyExtractionStore, extract_fulltext_documents
@@ -72,6 +72,10 @@ def build_parser() -> argparse.ArgumentParser:
     _project_arg(analyze)
     synthesize = commands.add_parser("synthesize")
     _project_arg(synthesize)
+    synthesize.add_argument("--model")
+    synthesis_mode = synthesize.add_mutually_exclusive_group()
+    synthesis_mode.add_argument("--offline-placeholder", action="store_true")
+    synthesis_mode.add_argument("--offline-fixture-writer", action="store_true", help=argparse.SUPPRESS)
     audit = commands.add_parser("audit")
     _project_arg(audit)
     audit.add_argument("--strict", action="store_true")
@@ -162,7 +166,8 @@ def main(argv: list[str] | None = None) -> int:
         ContradictionAnalyzer(project).analyze()
         return 0
     if args.command == "synthesize":
-        synthesize_review(project)
+        injected = fixture_writer if args.offline_fixture_writer else None
+        synthesize_review(project, injected, model=args.model, offline_placeholder=args.offline_placeholder)
         return 0
     if args.command == "audit":
         summary = ReviewAuditor(project).run()

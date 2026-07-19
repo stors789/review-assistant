@@ -54,7 +54,7 @@ class ReviewCliTests(unittest.TestCase):
         self.assertEqual(main(["review", "extract", "--project", str(self.root), "--input", str(extraction)]), 0)
         self.assertEqual(main(["review", "matrix", "build", "--project", str(self.root)]), 0)
         self.assertEqual(main(["review", "evidence", "analyze", "--project", str(self.root)]), 0)
-        self.assertEqual(main(["review", "synthesize", "--project", str(self.root)]), 0)
+        self.assertEqual(main(["review", "synthesize", "--project", str(self.root), "--offline-fixture-writer"]), 0)
         code = main(["review", "audit", "--project", str(self.root), "--strict"])
         self.assertIn(code, {0, 2})
 

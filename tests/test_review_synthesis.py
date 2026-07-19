@@ -2,10 +2,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from review_assistant.io_utils import load_yaml, write_yaml
 from review_assistant.project import ReviewProject
-from review_assistant.review_synthesis import build_evidence_memos, resolve_synthesis_plan, synthesize_review
+from review_assistant.review_synthesis import build_evidence_memos, fixture_writer, resolve_synthesis_plan, synthesize_review
 from review_assistant.studies import StudyExtractionStore
 
 
@@ -60,12 +61,53 @@ class ReviewSynthesisTests(unittest.TestCase):
         self.assertEqual(len(selected["included_study_ids"]), 5)
         self.assertTrue(all(reasons == ["included_by_rule"] for sid, reasons in selected["selection_explanations"].items() if sid in selected["included_study_ids"]))
 
-    def test_supporting_and_opposing_evidence_appear_in_draft_and_claim_map(self):
-        report = synthesize_review(self.project)
-        self.assertIn("supporting:", report)
-        self.assertIn("opposing:", report)
+    def test_structured_writer_citations_appear_in_draft_and_claim_map(self):
+        report = synthesize_review(self.project, fixture_writer)
+        self.assertIn("Eligible evidence for this section", report)
         claim_map = json.loads((self.project.root / "synthesis" / "claim_map.json").read_text())
         self.assertTrue(any(claim["supporting_studies"] for claim in claim_map["claims"]))
+
+    def test_writer_structured_claims_are_primary_claim_map_source(self):
+        study_id = resolve_synthesis_plan(self.project)["sections"][0]["included_study_ids"][0]
+
+        def writer(**kwargs):
+            sentence = f"Configured evidence was observed [{study_id}]."
+            return {"section_text": sentence, "claims": [{
+                "sentence": sentence, "supporting_study_ids": [study_id],
+                "contradicting_study_ids": [], "scope_status": "unclear",
+                "population_levels": ["configured-level"], "causal_strength": "descriptive",
+            }]}
+
+        synthesize_review(self.project, writer)
+        claim_map = json.loads((self.project.root / "synthesis" / "claim_map.json").read_text())
+        self.assertEqual(claim_map["claims"][0]["sentence"], f"Configured evidence was observed [{study_id}].")
+        self.assertEqual(claim_map["claims"][0]["protocol_scope_status"], "unclear")
+        self.assertEqual(claim_map["claims"][0]["population_evidence_levels"], ["configured-level"])
+
+    def test_writer_invalid_study_reference_is_preserved_for_audit(self):
+        synthesize_review(self.project, lambda **kwargs: {
+            "section_text": "Unsupported reference [study_missing].",
+            "claims": [{"sentence": "Unsupported reference [study_missing].", "supporting_study_ids": ["study_missing"]}],
+        })
+        claim_map = json.loads((self.project.root / "synthesis" / "claim_map.json").read_text())
+        self.assertEqual(claim_map["claims"][0]["invalid_supporting_studies"], ["study_missing"])
+
+    @patch("review_assistant.llm_client.call_json")
+    @patch("review_assistant.llm_client.get_client")
+    def test_default_review_writer_calls_configured_llm(self, get_client, call_json):
+        call_json.return_value = {"section_text": "Structured LLM section.", "claims": []}
+        synthesize_review(self.project, model="configured-model")
+        self.assertTrue(call_json.called)
+        self.assertTrue(all(call.args[3] == "configured-model" for call in call_json.call_args_list))
+        metadata = json.loads((self.project.root / "synthesis" / "synthesis_metadata.json").read_text())
+        self.assertEqual(metadata["writer"], "llm")
+        self.assertFalse(metadata["placeholder"])
+
+    def test_offline_placeholder_is_visibly_marked(self):
+        report = synthesize_review(self.project, offline_placeholder=True)
+        self.assertIn("PLACEHOLDER SYNTHESIS", report)
+        metadata = json.loads((self.project.root / "synthesis" / "synthesis_metadata.json").read_text())
+        self.assertTrue(metadata["placeholder"])
 
 
 if __name__ == "__main__":

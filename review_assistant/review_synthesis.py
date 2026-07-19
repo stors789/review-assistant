@@ -11,6 +11,7 @@ from typing import Any, Callable, Iterable
 from .io_utils import atomic_write_text, load_yaml, read_jsonl, stable_id, write_json
 from .project import ReviewProject
 from .eligibility import resolve_eligible_studies
+from .config import DEFAULT_PRO_MODEL, get_model
 
 
 def eligible_study_ids(project: ReviewProject) -> list[str]:
@@ -191,45 +192,64 @@ def build_evidence_memos(project: ReviewProject, plan: dict[str, Any] | None = N
     return all_memos
 
 
-def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, Any]], synthesis_context: dict[str, Any], mode: str, writer: Callable[..., str] | None = None) -> str:
+PLACEHOLDER_BANNER = "PLACEHOLDER SYNTHESIS — NOT A REVIEW DRAFT"
+
+
+def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, Any]], synthesis_context: dict[str, Any], mode: str, writer: Callable[..., Any] | None = None) -> dict[str, Any]:
     if mode not in {"explore", "review"}:
         raise ValueError("mode must be explore or review")
     if writer:
-        return writer(section_spec=section_spec, evidence_bundle=evidence_bundle, synthesis_context=synthesis_context, mode=mode)
+        result = writer(section_spec=section_spec, evidence_bundle=evidence_bundle, synthesis_context=synthesis_context, mode=mode)
+        if isinstance(result, str):
+            return {"section_text": result, "claims": [], "compatibility_fallback": True}
+        if not isinstance(result, dict) or not isinstance(result.get("section_text"), str) or not isinstance(result.get("claims"), list):
+            raise ValueError("Review writer must return an object with section_text and claims")
+        return result
     if mode == "review" and not section_spec.get("included_study_ids"):
-        return "Evidence is insufficient for this protocol-required section."
-    ids = section_spec.get("included_study_ids", [])
-    direction_labels = []
-    for field, label in (("supporting_evidence", "supporting"), ("contradicting_evidence", "opposing"), ("neutral_evidence", "neutral"), ("mixed_evidence", "mixed")):
-        values = section_spec.get(field, [])
-        if values:
-            direction_labels.append(f"{label}: {', '.join(values)}")
-    citations = " ".join(f"[{sid}]" for sid in ids)
-    return f"Evidence from {len(ids)} eligible studies was synthesized ({'; '.join(direction_labels) or 'direction unclear'}) {citations}."
+        return {"section_text": "Evidence is insufficient for this protocol-required section.", "claims": []}
+    raise RuntimeError("Review synthesis requires a configured LLM writer or an explicit offline mode")
 
 
-def synthesize_review(project: ReviewProject, writer: Callable[..., str] | None = None) -> str:
+def synthesize_review(
+    project: ReviewProject, writer: Callable[..., Any] | None = None, *,
+    model: str | None = None, offline_placeholder: bool = False,
+) -> str:
     plan = resolve_synthesis_plan(project)
     memos = build_evidence_memos(project, plan)
     by_section: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for memo in memos:
         by_section[memo["section_id"]].append(memo)
     protocol = project.protocol.data
+    selected_model = model or get_model(DEFAULT_PRO_MODEL)
+    if writer is None and not offline_placeholder:
+        writer = ReviewLLMWriter(selected_model)
+    if offline_placeholder:
+        writer = _placeholder_writer
     title = protocol["review"].get("title") or "Review synthesis"
     sections = [f"# {title}", "", f"Protocol hash: `{plan['protocol_hash']}`", ""]
+    if offline_placeholder:
+        sections.extend([f"> **{PLACEHOLDER_BANNER}**", ""])
     draft_dir = project.root / "synthesis" / "section_drafts"
     draft_dir.mkdir(parents=True, exist_ok=True)
+    structured_sections: list[dict[str, Any]] = []
     for spec in plan["sections"]:
-        content = write_section(spec, by_section.get(spec["section_id"], []), {"protocol": protocol}, "review", writer)
+        result = write_section(spec, by_section.get(spec["section_id"], []), {"protocol": protocol, "model": selected_model}, "review", writer)
+        content = result["section_text"]
+        structured_sections.append({"section_id": spec["section_id"], **result})
         atomic_write_text(draft_dir / f"{spec['section_id']}.md", content + "\n")
         sections.extend([f"## {spec['title']}", "", content, ""])
     report = "\n".join(sections).rstrip() + "\n"
     atomic_write_text(project.root / "synthesis" / "review_draft.md", report)
-    build_claim_map(project, report, plan)
+    build_claim_map(project, report, plan, structured_sections)
+    write_json(project.root / "synthesis" / "synthesis_metadata.json", {
+        "schema_version": "1.0", "protocol_hash": plan["protocol_hash"], "model": selected_model,
+        "writer": "offline_placeholder" if offline_placeholder else ("injected" if not isinstance(writer, ReviewLLMWriter) else "llm"),
+        "placeholder": offline_placeholder,
+    })
     return report
 
 
-def build_claim_map(project: ReviewProject, report: str, plan: dict[str, Any] | None = None) -> dict[str, Any]:
+def build_claim_map(project: ReviewProject, report: str, plan: dict[str, Any] | None = None, structured_sections: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     plan = plan or resolve_synthesis_plan(project)
     valid_studies = set(eligible_study_ids(project))
     outcomes = read_jsonl(project.root / "extraction" / "outcomes.jsonl")
@@ -239,26 +259,105 @@ def build_claim_map(project: ReviewProject, report: str, plan: dict[str, Any] | 
     contradiction_payload = project.root / "evidence" / "contradiction_groups.json"
     contradiction_groups = json.loads(contradiction_payload.read_text())["groups"] if contradiction_payload.exists() else []
     claims = []
-    current_section = ""
-    title_to_id = {section["title"]: section["section_id"] for section in plan["sections"]}
-    for line in report.splitlines():
-        if line.startswith("## "):
-            current_section = title_to_id.get(line[3:].strip(), "")
-            continue
-        for sentence in re.split(r"(?<=[.!?。！？])\s+", line.strip()):
-            if not sentence or sentence.startswith("#") or sentence.startswith("Protocol hash:"):
+    for section in structured_sections or []:
+        section_id = str(section.get("section_id", ""))
+        spec = next((item for item in plan["sections"] if item["section_id"] == section_id), {})
+        for raw in section.get("claims", []):
+            if not isinstance(raw, dict) or not str(raw.get("sentence", "")).strip():
                 continue
-            cited = sorted(set(re.findall(r"\[([^\[\]]*study_[0-9a-f]{16})\]", sentence)) & valid_studies)
-            relevant_inconsistency = any(set(cited) & set(group.get("study_ids", [])) and group.get("has_directional_inconsistency") for group in contradiction_groups)
-            contradicting = sorted({sid for group in contradiction_groups if set(cited) & set(group.get("study_ids", [])) and group.get("has_directional_inconsistency") for sid in group.get("study_ids", []) if sid not in cited})
-            support = "unsupported" if not cited else ("mixed" if relevant_inconsistency else "supported")
-            claims.append({
-                "claim_id": stable_id("claim", current_section, sentence), "section_id": current_section,
-                "sentence": sentence, "supporting_studies": cited, "contradicting_studies": contradicting,
-                "support_level": support, "required_qualifiers": [],
-                "evidence_locations": [{"study_id": sid, "locations": locations[sid]} for sid in cited],
-                "protocol_scope_status": "inside", "audit_status": "pending",
-            })
+            claims.append(_analyze_claim(project, raw, section_id, spec, valid_studies, locations, contradiction_groups))
     result = {"schema_version": "1.0", "protocol_hash": project.track_protocol(), "claims": claims}
     write_json(project.root / "synthesis" / "claim_map.json", result)
     return result
+
+
+class ReviewLLMWriter:
+    def __init__(self, model: str):
+        self.model = model
+
+    def __call__(self, **kwargs: Any) -> dict[str, Any]:
+        from . import llm_client
+        section = kwargs["section_spec"]
+        context = kwargs["synthesis_context"]
+        evidence = kwargs["evidence_bundle"]
+        system = (
+            "You are a rigorous evidence-synthesis writer. Use only supplied eligible studies. "
+            "Return JSON with section_text and claims. Every substantive claim must cite study IDs and preserve "
+            "supporting, contradicting, neutral, mixed, missing, population, scope, causal-strength, and qualifier distinctions. "
+            "Do not invent numbers or quotations; do not convert unreported information into no effect; do not overgeneralize populations or causality."
+        )
+        user = json.dumps({
+            "section_spec": section, "protocol_scope": context.get("protocol", {}).get("scope", {}),
+            "review_question": context.get("protocol", {}).get("review", {}).get("primary_question", ""),
+            "evidence_memos": evidence,
+            "output_schema": {
+                "section_text": "markdown text with [study_id] citations",
+                "claims": [{
+                    "sentence": "claim sentence", "supporting_study_ids": [], "contradicting_study_ids": [],
+                    "required_qualifiers": [], "scope_status": "inside|adjacent|outside|unclear",
+                    "population_levels": [], "causal_strength": "descriptive|associational|causal|unclear",
+                }],
+            },
+        }, ensure_ascii=False, indent=2)
+        result = llm_client.call_json(llm_client.get_client(), system, user, self.model, max_tokens=16384)
+        if not isinstance(result, dict):
+            raise ValueError("Review LLM writer returned a non-object response")
+        return result
+
+
+def _placeholder_writer(**kwargs: Any) -> dict[str, Any]:
+    return {"section_text": PLACEHOLDER_BANNER, "claims": []}
+
+
+def fixture_writer(**kwargs: Any) -> dict[str, Any]:
+    """Deterministic structured writer for offline integration tests and tutorials."""
+    section = kwargs["section_spec"]
+    items = [item for memo in kwargs["evidence_bundle"] for item in memo.get("evidence_items", [])]
+    if not items:
+        return {"section_text": "Evidence is insufficient for this protocol-required section.", "claims": []}
+    ids = [str(item["study_id"]) for item in items]
+    sentence = f"Eligible evidence for this section was reported by {len(ids)} study record(s) " + " ".join(f"[{sid}]" for sid in ids) + "."
+    return {"section_text": sentence, "claims": [{
+        "sentence": sentence, "supporting_study_ids": ids, "contradicting_study_ids": [],
+        "required_qualifiers": list(section.get("required_qualifiers", [])), "scope_status": "unclear",
+        "population_levels": [], "causal_strength": "descriptive",
+    }]}
+
+
+def _analyze_claim(
+    project: ReviewProject, raw: dict[str, Any], section_id: str, section_spec: dict[str, Any],
+    valid_studies: set[str], locations: dict[str, list[dict[str, Any]]], contradiction_groups: list[dict[str, Any]],
+) -> dict[str, Any]:
+    sentence = str(raw.get("sentence", "")).strip()
+    supporting = [str(value) for value in raw.get("supporting_study_ids", raw.get("supporting_studies", []))]
+    contradicting = [str(value) for value in raw.get("contradicting_study_ids", raw.get("contradicting_studies", []))]
+    required = list(raw.get("required_qualifiers", section_spec.get("required_qualifiers", [])))
+    scope = str(raw.get("scope_status", raw.get("protocol_scope_status", "unclear")))
+    if scope not in {"inside", "adjacent", "outside", "unclear"}:
+        scope = "unclear"
+    known_support = [sid for sid in supporting if sid in valid_studies]
+    omitted_contradictions = sorted({
+        sid for group in contradiction_groups if group.get("has_directional_inconsistency")
+        and set(known_support).intersection(group.get("study_ids", []))
+        for sid in group.get("study_ids", []) if sid not in supporting + contradicting
+    })
+    support_level = str(raw.get("support_level") or ("unsupported" if not supporting else ("mixed" if contradicting else "supported")))
+    return {
+        "claim_id": str(raw.get("claim_id") or stable_id("claim", section_id, sentence)),
+        "section_id": section_id, "sentence": sentence,
+        "supporting_studies": supporting, "contradicting_studies": contradicting,
+        "support_level": support_level, "required_qualifiers": required,
+        "missing_required_qualifiers": [value for value in required if str(value).casefold() not in sentence.casefold()],
+        "evidence_locations": [{"study_id": sid, "locations": locations[sid]} for sid in supporting if sid in locations],
+        "protocol_scope_status": scope,
+        "population_evidence_levels": list(raw.get("population_levels", [])),
+        "animal_to_human": bool(raw.get("animal_to_human", False)),
+        "population_overgeneralization": bool(raw.get("population_overgeneralization", False)),
+        "causal_inflation": bool(raw.get("causal_inflation", False)),
+        "causal_strength": str(raw.get("causal_strength", "unclear")),
+        "unreported_field_claims": list(raw.get("unreported_field_claims", [])),
+        "omitted_contradicting_studies": omitted_contradictions,
+        "invalid_supporting_studies": sorted(set(supporting) - valid_studies),
+        "invalid_contradicting_studies": sorted(set(contradicting) - valid_studies),
+        "audit_status": "pending",
+    }
