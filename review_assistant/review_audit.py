@@ -11,9 +11,9 @@ from typing import Any
 from .io_utils import atomic_write_text, load_yaml, read_jsonl, write_json
 from .project import ReviewProject
 from .review_synthesis import eligible_study_ids, resolve_synthesis_plan
-from .eligibility import latest_screening_decisions, resolve_eligibility
+from .eligibility import fulltext_requirement, latest_screening_decisions, resolve_eligibility, resolve_fulltext_status
 from .screening import resolve_screening_completeness
-from .studies import evidence_location_id
+from .studies import current_extraction_errors, evidence_location_id
 
 
 AUDIT_OUTPUTS = {
@@ -190,7 +190,7 @@ class ReviewAuditor:
             if claim.get("critical_claim") and supporting and not _side_evidence_refs(claim, "supporting"):
                 issues.append(_issue("supporting_evidence_unresolved", "Critical supporting claim lacks a concrete evidence location", claim_id=cid))
 
-        extraction_errors = read_jsonl(self.project.root / "extraction" / "extraction_errors.jsonl")
+        extraction_errors = current_extraction_errors(self.project)
         for error in extraction_errors:
             if error.get("error") == "quote_verification_failed":
                 issues.append(_issue("invalid_quote", "Extracted quote failed source verification", study_id=error.get("study_id")))
@@ -278,6 +278,12 @@ class ReviewAuditor:
                 issues.append(_issue("included_record_lacking_study_link", "A full-text included record has no study link", record_ids=sorted(eligibility.unlinked_included_record_ids)))
             if eligibility.unlinked_study_ids:
                 issues.append(_issue("study_lacking_source_record", "An extracted study has no source record while screening is required", study_ids=sorted(eligibility.unlinked_study_ids)))
+
+        fulltext = resolve_fulltext_status(self.project)
+        if fulltext_requirement(self.project) == "required" and fulltext["fulltext_missing_record_ids"]:
+            issues.append(_issue("included_record_lacking_full_text", "An included record has no available full text", record_ids=fulltext["fulltext_missing_record_ids"]))
+        elif fulltext_requirement(self.project) == "structured_extraction_allowed" and fulltext["study_link_missing_record_ids"]:
+            issues.append(_issue("included_record_lacking_structured_extraction", "An included record has no structured extraction", record_ids=fulltext["study_link_missing_record_ids"]))
 
         categories: dict[str, list[dict[str, Any]]] = {key: [] for key in AUDIT_OUTPUTS}
         for item in issues:

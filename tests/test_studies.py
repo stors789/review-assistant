@@ -1,10 +1,11 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from review_assistant.project import ReviewProject
-from review_assistant.io_utils import load_yaml, write_yaml
-from review_assistant.studies import StudyExtractionStore, extract_fulltext_documents, field_focus_terms, publication_id, study_id
+from review_assistant.io_utils import append_jsonl, load_yaml, read_jsonl, write_yaml
+from review_assistant.studies import StudyExtractionStore, current_extraction_errors, extract_fulltext_documents, field_focus_terms, publication_id, study_id
 
 
 class StudyExtractionTests(unittest.TestCase):
@@ -37,6 +38,32 @@ class StudyExtractionTests(unittest.TestCase):
         _, _, outcomes = StudyExtractionStore(self.project, quote_validator=lambda q: False).ingest(record)
         self.assertEqual(outcomes[0].evidence[0].validation_status, "failed")
         self.assertIn("quote_verification_failed", (self.project.root / "extraction" / "extraction_errors.jsonl").read_text())
+
+    def test_corrected_extraction_supersedes_historical_error(self):
+        append_jsonl(self.project.root / "search" / "deduplicated_records.jsonl", [{
+            "record_id": "record_revision", "title": "Revision publication",
+        }])
+        record = {
+            "source_record_id": "record_revision", "publication": {"title": "Revision publication"},
+            "studies": [{"label": "stable study", "fields": {}, "outcomes": [{
+                "domain": "configured outcome", "effect_direction": "increase", "support_relation": "supports",
+                "evidence": [{"quote": "old quotation"}],
+            }]}],
+        }
+        first = StudyExtractionStore(self.project, quote_validator=lambda quote: False).ingest(record)
+        outcome_id = first[2][0].outcome_id
+        self.assertTrue(any(error.get("error") == "quote_verification_failed" for error in current_extraction_errors(self.project)))
+        second_record = json.loads(json.dumps(record))
+        second_record["studies"][0]["outcomes"][0]["evidence"][0]["quote"] = "corrected quotation"
+        second = StudyExtractionStore(self.project, quote_validator=lambda quote: True).ingest(second_record)
+        self.assertEqual(second[2][0].outcome_id, outcome_id)
+        state = json.loads((self.project.root / "extraction" / "current_extraction_state.json").read_text())
+        self.assertEqual(state["outcomes"][outcome_id]["extraction_version"], 2)
+        errors = read_jsonl(self.project.root / "extraction" / "extraction_errors.jsonl")
+        historical = [error for error in errors if error.get("error") == "quote_verification_failed"]
+        self.assertTrue(historical)
+        self.assertTrue(all(error.get("status") == "superseded" for error in historical))
+        self.assertFalse(any(error.get("error") == "quote_verification_failed" for error in current_extraction_errors(self.project)))
 
     def test_focus_terms_come_from_schema_metadata(self):
         terms = field_focus_terms({"fields": {"sample.variable": {"description": "Configured descriptor", "aliases": ["configured alias"], "extraction_instruction": "Find explicit report"}}})

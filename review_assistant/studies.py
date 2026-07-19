@@ -5,12 +5,15 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+import json
 import re
 import unicodedata
 
-from .io_utils import append_jsonl, read_jsonl, stable_id
+from .io_utils import append_jsonl, atomic_write_text, read_jsonl, stable_id
 from .project import ReviewProject, utc_now
 from .review_search import _doi, _title_key
+
+EXTRACTION_SCHEMA_VERSION = "1.1"
 
 
 @dataclass
@@ -25,6 +28,10 @@ class EvidenceLocation:
     matched_excerpt: str = ""
     confidence: float = 0.0
     evidence_id: str = ""
+    extraction_run_id: str = ""
+    extraction_version: int = 0
+    status: str = "active"
+    supersedes: str = ""
 
 
 @dataclass
@@ -36,6 +43,11 @@ class Outcome:
     support_relation: str = "unclear"
     value: Any = None
     evidence: list[EvidenceLocation] = field(default_factory=list)
+    identity_key: str = ""
+    extraction_run_id: str = ""
+    extraction_version: int = 0
+    status: str = "active"
+    supersedes: str = ""
 
 
 @dataclass
@@ -58,6 +70,11 @@ class Study:
     outcome_ids: list[str] = field(default_factory=list)
     evidence: dict[str, list[EvidenceLocation]] = field(default_factory=dict)
     manually_revised: bool = False
+    identity_key: str = ""
+    extraction_run_id: str = ""
+    extraction_version: int = 0
+    status: str = "active"
+    supersedes: str = ""
 
 
 @dataclass
@@ -68,6 +85,10 @@ class Publication:
     year: str = ""
     authors: list[str] = field(default_factory=list)
     study_ids: list[str] = field(default_factory=list)
+    extraction_run_id: str = ""
+    extraction_version: int = 0
+    status: str = "active"
+    supersedes: str = ""
 
 
 def publication_id(record: dict[str, Any]) -> str:
@@ -86,6 +107,94 @@ def evidence_location_id(study_id_value: str, outcome_id_value: str, location: d
         location.get("page", ""), location.get("section", ""),
         location.get("figure", ""), location.get("table", ""), ordinal,
     )
+
+
+def _identity_key(prefix: str, *parts: Any) -> str:
+    return stable_id(f"{prefix}-key", *[str(part).strip().casefold() for part in parts])
+
+
+def study_identity_key(publication: str, label: str) -> str:
+    return _identity_key("study", publication, label)
+
+
+def outcome_identity_key(study: str, domain: str, ordinal: int) -> str:
+    return _identity_key("outcome", study, domain, ordinal)
+
+
+def _load_extraction_state(output: Path) -> dict[str, Any]:
+    path = output / "current_extraction_state.json"
+    if not path.exists():
+        return {"schema_version": EXTRACTION_SCHEMA_VERSION, "publications": {}, "studies": {}, "outcomes": {}, "updated_at": ""}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    for key in ("publications", "studies", "outcomes"):
+        if not isinstance(payload.get(key), dict):
+            payload[key] = {}
+    payload.setdefault("schema_version", EXTRACTION_SCHEMA_VERSION)
+    return payload
+
+
+def _write_jsonl_values(path: Path, values: list[dict[str, Any]]) -> None:
+    atomic_write_text(path, "".join(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n" for value in values))
+
+
+def _mark_historical_records(output: Path, filename: str, entity_ids: set[str], run_id: str) -> None:
+    path = output / filename
+    values = read_jsonl(path)
+    changed = False
+    for value in values:
+        entity_id = str(value.get("entity_id") or value.get("outcome_id") or value.get("study_id") or value.get("publication_id") or value.get("extraction_run_id") or "")
+        if entity_id in entity_ids and value.get("status", "active") == "active" and value.get("extraction_run_id") != run_id:
+            value["status"] = "superseded"
+            value["superseded_by"] = run_id
+            changed = True
+    if changed:
+        _write_jsonl_values(path, values)
+
+
+def _superseded_record(value: dict[str, Any], run_id: str) -> dict[str, Any]:
+    result = dict(value)
+    result["status"] = "superseded"
+    result["superseded_by"] = run_id
+    if isinstance(result.get("evidence"), list):
+        result["evidence"] = [
+            {**dict(location), "status": "superseded", "superseded_by": run_id}
+            for location in result["evidence"] if isinstance(location, dict)
+        ]
+    if isinstance(result.get("evidence"), dict):
+        result["evidence"] = {
+            name: [
+                {**dict(location), "status": "superseded", "superseded_by": run_id}
+                for location in locations if isinstance(location, dict)
+            ]
+            for name, locations in result["evidence"].items()
+        }
+    return result
+
+
+def current_extraction_errors(project: ReviewProject) -> list[dict[str, Any]]:
+    """Return only errors belonging to the current extraction entity version."""
+    output = project.root / "extraction"
+    state = _load_extraction_state(output)
+    values: list[dict[str, Any]] = []
+    for error in read_jsonl(output / "extraction_errors.jsonl"):
+        if error.get("status") in {"superseded", "resolved"}:
+            continue
+        entity_type = str(error.get("entity_type", ""))
+        entity_id = str(error.get("entity_id") or error.get("outcome_id") or error.get("study_id") or error.get("publication_id") or "")
+        current = state.get({"publication": "publications", "study": "studies", "outcome": "outcomes"}.get(entity_type, ""), {}).get(entity_id)
+        if current:
+            run_id = str(error.get("extraction_run_id", ""))
+            if run_id and run_id != str(current.get("extraction_run_id", "")):
+                continue
+            if not run_id and int(current.get("extraction_version", 1) or 1) > 1:
+                continue
+        values.append(error)
+    return values
 
 
 def field_focus_terms(schema_data: dict[str, Any]) -> list[str]:
@@ -122,33 +231,58 @@ class StudyExtractionStore:
         if not isinstance(pub_data, dict) or not isinstance(study_data, list):
             raise ValueError("extraction requires publication mapping and studies list")
         pub_id = publication_id(pub_data)
+        output = self.project.root / "extraction"
+        state = _load_extraction_state(output)
+        timestamp = utc_now()
+        previous_publication = state["publications"].get(pub_id, {})
+        extraction_version = int(previous_publication.get("extraction_version", 0) or 0) + 1
+        extraction_run_id = stable_id("extraction-run", pub_id, timestamp, extraction_version)
+        previous_studies: dict[str, dict[str, Any]] = {}
+        for item in read_jsonl(output / "studies.jsonl"):
+            if str(item.get("publication_id", "")) != pub_id:
+                continue
+            key = str(item.get("identity_key") or study_identity_key(pub_id, str(item.get("label", ""))))
+            if item.get("status", "active") == "active":
+                previous_studies[key] = item
+        previous_outcomes: dict[str, dict[str, Any]] = {}
+        for item in read_jsonl(output / "outcomes.jsonl"):
+            if item.get("status", "active") != "active":
+                continue
+            key = str(item.get("identity_key") or outcome_identity_key(str(item.get("study_id", "")), str(item.get("domain", "")), 0))
+            previous_outcomes[key] = item
         publication = Publication(
             publication_id=pub_id, title=str(pub_data.get("title", "")), doi=str(pub_data.get("doi", "")),
             year=str(pub_data.get("year", "")), authors=[str(author) for author in pub_data.get("authors", [])],
+            extraction_run_id=extraction_run_id, extraction_version=extraction_version,
+            supersedes=str(previous_publication.get("extraction_run_id", "")),
         )
         studies: list[Study] = []
         outcomes: list[Outcome] = []
         errors: list[dict[str, Any]] = []
-        output = self.project.root / "extraction"
+        warnings: list[dict[str, Any]] = []
         for index, raw in enumerate(study_data):
             label = str(raw.get("label") or f"study-{index + 1}")
-            sid = str(raw.get("study_id") or study_id(pub_id, label, index))
+            identity_key = str(raw.get("identity_key") or study_identity_key(pub_id, label))
+            previous_study = previous_studies.get(identity_key, {})
+            sid = str(raw.get("study_id") or previous_study.get("study_id") or study_id(pub_id, label, index))
             fields = self.schema.apply_study_missing_values(dict(raw.get("fields", {})))
             for validation_error in self.schema.validate_study_values(fields):
                 errors.append({"schema_version": "1.0", "study_id": sid, "error": "schema_validation_failed", "field": validation_error.get("field"), "validation_error": validation_error.get("error")})
-            evidence = self._evidence_map(raw.get("evidence", {}), sid, errors)
+            evidence = self._evidence_map(raw.get("evidence", {}), sid, errors, extraction_run_id, extraction_version)
             arms = []
             for arm_index, arm in enumerate(raw.get("arms", [])):
                 aid = str(arm.get("arm_id") or stable_id("arm", sid, arm.get("role"), arm.get("label"), arm_index))
                 arms.append(Arm(
                     aid, sid, str(arm.get("role", "")), str(arm.get("label", "")),
                     dict(arm.get("attributes", {})),
-                    self._locations(arm.get("evidence", []), sid, errors, outcome_id=aid),
+                    self._locations(arm.get("evidence", []), sid, errors, outcome_id=aid, extraction_run_id=extraction_run_id, extraction_version=extraction_version),
                 ))
             study_outcomes = []
             for outcome_index, raw_outcome in enumerate(raw.get("outcomes", [])):
-                oid = str(raw_outcome.get("outcome_id") or stable_id("outcome", sid, raw_outcome.get("domain"), outcome_index))
-                locations = self._locations(raw_outcome.get("evidence", []), sid, errors, outcome_id=oid)
+                outcome_key = str(raw_outcome.get("identity_key") or outcome_identity_key(sid, str(raw_outcome.get("domain", "")), outcome_index))
+                previous_outcome = previous_outcomes.get(outcome_key, {})
+                oid = str(raw_outcome.get("outcome_id") or previous_outcome.get("outcome_id") or stable_id("outcome", sid, raw_outcome.get("domain"), outcome_index))
+                locations = self._locations(raw_outcome.get("evidence", []), sid, errors, outcome_id=oid, extraction_run_id=extraction_run_id, extraction_version=extraction_version)
                 used_legacy_direction = "effect_direction" not in raw_outcome and "direction" in raw_outcome
                 effect_direction = str(raw_outcome.get("effect_direction", raw_outcome.get("direction", "unclear")))
                 support_relation = str(raw_outcome.get("support_relation") or self._configured_support_relation(str(raw_outcome.get("domain", "not_reported")), effect_direction))
@@ -161,23 +295,95 @@ class StudyExtractionStore:
                 for validation_error in self.schema.validate_outcome(normalized_outcome):
                     errors.append({"schema_version": "1.0", "study_id": sid, "outcome_id": oid, "error": "outcome_schema_validation_failed", "field": validation_error.get("field"), "validation_error": validation_error.get("error"), "raw_record": raw_outcome})
                 if used_legacy_direction:
-                    append_jsonl(output / "extraction_warnings.jsonl", [{
+                    warnings.append({
                         "schema_version": "1.0", "study_id": sid, "outcome_id": oid,
                         "warning": "legacy_direction_migrated", "detail": "direction was migrated to effect_direction; support_relation was not inferred without configuration",
-                    }])
-                outcome = Outcome(oid, sid, normalized_outcome["domain"], effect_direction, support_relation, raw_outcome.get("value"), locations)
+                    })
+                outcome = Outcome(
+                    oid, sid, normalized_outcome["domain"], effect_direction, support_relation,
+                    raw_outcome.get("value"), locations, outcome_key, extraction_run_id,
+                    extraction_version, "active", str(previous_outcome.get("extraction_run_id", "")),
+                )
                 outcomes.append(outcome)
                 study_outcomes.append(oid)
-            studies.append(Study(sid, pub_id, label, fields, arms, study_outcomes, evidence, bool(raw.get("manually_revised", False))))
+            studies.append(Study(
+                sid, pub_id, label, fields, arms, study_outcomes, evidence,
+                bool(raw.get("manually_revised", False)), identity_key,
+                extraction_run_id, extraction_version, "active",
+                str(previous_study.get("extraction_run_id", "")),
+            ))
             publication.study_ids.append(sid)
-        append_jsonl(output / "publications.jsonl", [{"schema_version": "1.0", **asdict(publication)}])
-        append_jsonl(output / "studies.jsonl", ({"schema_version": "1.0", **asdict(item)} for item in studies))
-        append_jsonl(output / "outcomes.jsonl", ({"schema_version": "1.0", **asdict(item)} for item in outcomes))
-        self._persist_links(record, publication, studies)
+
+        # Preserve a visible superseded event before writing the new active
+        # version.  Latest-row readers therefore see the new extraction while
+        # auditors can still reconstruct the previous run.
+        if previous_publication:
+            append_jsonl(output / "publications.jsonl", [{"schema_version": EXTRACTION_SCHEMA_VERSION, **_superseded_record(previous_publication, extraction_run_id)}])
+        if previous_studies:
+            append_jsonl(output / "studies.jsonl", ({"schema_version": EXTRACTION_SCHEMA_VERSION, **_superseded_record(item, extraction_run_id)} for item in previous_studies.values()))
+        previous_study_ids = {str(item.get("study_id")) for item in previous_studies.values() if item.get("study_id")}
+        previous_outcome_rows = [item for item in read_jsonl(output / "outcomes.jsonl") if str(item.get("study_id")) in previous_study_ids and item.get("status", "active") == "active"]
+        if previous_outcome_rows:
+            append_jsonl(output / "outcomes.jsonl", ({"schema_version": EXTRACTION_SCHEMA_VERSION, **_superseded_record(item, extraction_run_id)} for item in previous_outcome_rows))
+
+        append_jsonl(output / "publications.jsonl", [{"schema_version": EXTRACTION_SCHEMA_VERSION, **asdict(publication)}])
+        append_jsonl(output / "studies.jsonl", ({"schema_version": EXTRACTION_SCHEMA_VERSION, **asdict(item)} for item in studies))
+        append_jsonl(output / "outcomes.jsonl", ({"schema_version": EXTRACTION_SCHEMA_VERSION, **asdict(item)} for item in outcomes))
+        self._persist_links(record, publication, studies, extraction_run_id, extraction_version)
+        for error in errors:
+            error.update({
+                "schema_version": EXTRACTION_SCHEMA_VERSION,
+                "extraction_run_id": extraction_run_id,
+                "extraction_version": extraction_version,
+                "status": "active",
+                "timestamp": timestamp,
+                "entity_type": "outcome" if error.get("outcome_id") else "study" if error.get("study_id") else "publication" if error.get("publication_id") else "extraction",
+                "entity_id": str(error.get("outcome_id") or error.get("study_id") or error.get("publication_id") or error.get("file") or ""),
+            })
         if errors:
             append_jsonl(output / "extraction_errors.jsonl", errors)
         else:
             (output / "extraction_errors.jsonl").touch(exist_ok=True)
+        for warning in warnings:
+            warning.update({
+                "schema_version": EXTRACTION_SCHEMA_VERSION,
+                "extraction_run_id": extraction_run_id,
+                "extraction_version": extraction_version,
+                "status": "active",
+                "timestamp": timestamp,
+                "entity_type": "outcome" if warning.get("outcome_id") else "study",
+                "entity_id": str(warning.get("outcome_id") or warning.get("study_id") or ""),
+            })
+        if warnings:
+            append_jsonl(output / "extraction_warnings.jsonl", warnings)
+        affected_ids = {pub_id} | {study.study_id for study in studies} | {outcome.outcome_id for outcome in outcomes}
+        _mark_historical_records(output, "extraction_errors.jsonl", affected_ids, extraction_run_id)
+        _mark_historical_records(output, "extraction_warnings.jsonl", affected_ids, extraction_run_id)
+        state["publications"][pub_id] = {
+            "entity_type": "publication", "entity_id": pub_id, "extraction_run_id": extraction_run_id,
+            "extraction_version": extraction_version, "status": "active", "supersedes": str(previous_publication.get("extraction_run_id", "")),
+        }
+        for study in studies:
+            state["studies"][study.study_id] = {
+                "entity_type": "study", "entity_id": study.study_id, "extraction_run_id": extraction_run_id,
+                "extraction_version": extraction_version, "status": "active", "supersedes": study.supersedes,
+            }
+        for outcome in outcomes:
+            state["outcomes"][outcome.outcome_id] = {
+                "entity_type": "outcome", "entity_id": outcome.outcome_id, "extraction_run_id": extraction_run_id,
+                "extraction_version": extraction_version, "status": "active", "supersedes": outcome.supersedes,
+            }
+        state.update({"schema_version": EXTRACTION_SCHEMA_VERSION, "updated_at": timestamp, "current_extraction_run_id": extraction_run_id})
+        atomic_write_text(output / "current_extraction_state.json", json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        previous_run_id = str(previous_publication.get("extraction_run_id", ""))
+        if previous_run_id:
+            _mark_historical_records(output, "extraction_runs.jsonl", {previous_run_id}, extraction_run_id)
+        append_jsonl(output / "extraction_runs.jsonl", [{
+            "schema_version": EXTRACTION_SCHEMA_VERSION, "extraction_run_id": extraction_run_id,
+            "extraction_version": extraction_version, "publication_id": pub_id, "status": "active",
+            "supersedes": str(previous_publication.get("extraction_run_id", "")), "timestamp": timestamp,
+            "study_ids": [study.study_id for study in studies], "outcome_ids": [outcome.outcome_id for outcome in outcomes],
+        }])
         return publication, studies, outcomes
 
     def _configured_support_relation(self, domain: str, effect_direction: str) -> str:
@@ -195,14 +401,16 @@ class StudyExtractionStore:
             return "mixed"
         return "unclear"
 
-    def _persist_links(self, record: dict[str, Any], publication: Publication, studies: list[Study]) -> None:
+    def _persist_links(self, record: dict[str, Any], publication: Publication, studies: list[Study], extraction_run_id: str, extraction_version: int) -> None:
         source_record_id, method, confidence = match_extraction_record(self.project, record)
         common = {
-            "schema_version": "1.0", "record_id": source_record_id,
+            "schema_version": EXTRACTION_SCHEMA_VERSION, "record_id": source_record_id,
             "publication_id": publication.publication_id,
             "source_file": str(record.get("source_file", "")), "link_method": method,
             "confidence": confidence, "timestamp": utc_now(),
             "protocol_hash": self.project.track_protocol(),
+            "extraction_run_id": extraction_run_id, "extraction_version": extraction_version,
+            "status": "active", "supersedes": publication.supersedes,
         }
         append_jsonl(self.project.root / "extraction" / "record_publication_links.jsonl", [common])
         append_jsonl(self.project.root / "extraction" / "study_record_links.jsonl", [
@@ -210,20 +418,23 @@ class StudyExtractionStore:
         ])
         if not source_record_id:
             append_jsonl(self.project.root / "extraction" / "extraction_errors.jsonl", [{
-                "schema_version": "1.0", "publication_id": publication.publication_id,
+                "schema_version": EXTRACTION_SCHEMA_VERSION, "publication_id": publication.publication_id,
                 "study_ids": [study.study_id for study in studies], "source_file": common["source_file"],
                 "error": "record_link_unresolved",
+                "extraction_run_id": extraction_run_id, "extraction_version": extraction_version,
+                "status": "active", "timestamp": common["timestamp"], "entity_type": "publication",
+                "entity_id": publication.publication_id,
             }])
 
-    def _evidence_map(self, raw: Any, sid: str, errors: list[dict[str, Any]]) -> dict[str, list[EvidenceLocation]]:
+    def _evidence_map(self, raw: Any, sid: str, errors: list[dict[str, Any]], extraction_run_id: str, extraction_version: int) -> dict[str, list[EvidenceLocation]]:
         if not isinstance(raw, dict):
             return {}
         return {
-            str(name): self._locations(locations, sid, errors, outcome_id=str(name))
+            str(name): self._locations(locations, sid, errors, outcome_id=str(name), extraction_run_id=extraction_run_id, extraction_version=extraction_version)
             for name, locations in raw.items()
         }
 
-    def _locations(self, raw: Any, sid: str, errors: list[dict[str, Any]], *, outcome_id: str = "") -> list[EvidenceLocation]:
+    def _locations(self, raw: Any, sid: str, errors: list[dict[str, Any]], *, outcome_id: str = "", extraction_run_id: str = "", extraction_version: int = 0) -> list[EvidenceLocation]:
         values = raw if isinstance(raw, list) else []
         result = []
         for ordinal, item in enumerate(values):
@@ -249,8 +460,9 @@ class StudyExtractionStore:
                 str(item.get("figure", "")), str(item.get("table", "")), status,
                 str(validation.get("validation_method", "none")), str(validation.get("matched_excerpt", "")),
                 float(validation.get("confidence", 0.0)),
+                evidence_location_id(sid, outcome_id, item, ordinal), extraction_run_id,
+                extraction_version, "active", "",
             ))
-            result[-1].evidence_id = evidence_location_id(sid, outcome_id, item, ordinal)
         return result
 
 
