@@ -50,10 +50,12 @@ class ReviewSynthesisTests(unittest.TestCase):
 
     def test_empty_evidence_section_does_not_call_writer(self):
         calls = []
+        study_id = resolve_synthesis_plan(self.project)["sections"][0]["included_study_ids"][0]
 
         def writer(**kwargs):
             calls.append(kwargs["section_spec"]["section_id"])
-            return {"section_text": "Evidence was reported.", "claims": []}
+            sentence = f"Evidence was reported [{study_id}]."
+            return {"section_text": sentence, "claims": [{"sentence": sentence, "supporting_study_ids": [study_id]}]}
 
         synthesize_review(self.project, writer)
         self.assertEqual(calls, ["S01"])
@@ -99,17 +101,18 @@ class ReviewSynthesisTests(unittest.TestCase):
         self.assertEqual(claim_map["claims"][0]["population_evidence_levels"], ["configured-level"])
 
     def test_writer_invalid_study_reference_is_preserved_for_audit(self):
-        synthesize_review(self.project, lambda **kwargs: {
-            "section_text": "Unsupported reference [study_missing].",
-            "claims": [{"sentence": "Unsupported reference [study_missing].", "supporting_study_ids": ["study_missing"]}],
-        })
-        claim_map = json.loads((self.project.root / "synthesis" / "claim_map.json").read_text())
-        self.assertEqual(claim_map["claims"][0]["invalid_supporting_studies"], ["study_missing"])
+        with self.assertRaisesRegex(ValueError, "coverage failed"):
+            synthesize_review(self.project, lambda **kwargs: {
+                "section_text": "Unsupported reference [study_missing].",
+                "claims": [{"sentence": "Unsupported reference [study_missing].", "supporting_study_ids": ["study_missing"]}],
+            })
 
     @patch("review_assistant.llm_client.call_json")
     @patch("review_assistant.llm_client.get_client")
     def test_default_review_writer_calls_configured_llm(self, get_client, call_json):
-        call_json.return_value = {"section_text": "Structured LLM section.", "claims": []}
+        study_id = resolve_synthesis_plan(self.project)["sections"][0]["included_study_ids"][0]
+        sentence = f"Structured LLM evidence was reported [{study_id}]."
+        call_json.return_value = {"section_text": sentence, "claims": [{"sentence": sentence, "supporting_study_ids": [study_id]}]}
         synthesize_review(self.project, model="configured-model")
         self.assertTrue(call_json.called)
         self.assertTrue(all(call.args[3] == "configured-model" for call in call_json.call_args_list))

@@ -193,6 +193,7 @@ def build_evidence_memos(project: ReviewProject, plan: dict[str, Any] | None = N
 
 
 PLACEHOLDER_BANNER = "PLACEHOLDER SYNTHESIS — NOT A REVIEW DRAFT"
+SECTION_VALIDATION_SCHEMA_VERSION = "1.0"
 
 
 def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, Any]], synthesis_context: dict[str, Any], mode: str, writer: Callable[..., Any] | None = None) -> dict[str, Any]:
@@ -208,18 +209,20 @@ def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, 
             or synthesis_context.get("insufficient_evidence_text")
             or "Evidence is insufficient for this protocol-required section."
         )
-        return {
+        result = {
             "section_text": text,
             "claims": [],
             "evidence_status": "insufficient",
             "writer_called": False,
             "writer_type": "none",
         }
+        result["section_validation"] = validate_structured_section_output(section_spec, result, [])
+        return result
 
     if writer:
         result = writer(section_spec=section_spec, evidence_bundle=evidence_bundle, synthesis_context=synthesis_context, mode=mode)
         if isinstance(result, str):
-            return {
+            normalized_result = {
                 "section_text": result,
                 "claims": [],
                 "compatibility_fallback": True,
@@ -227,14 +230,22 @@ def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, 
                 "writer_called": True,
                 "writer_type": _writer_type(writer),
             }
+            normalized_result["section_validation"] = validate_structured_section_output(
+                section_spec, normalized_result, section_spec.get("included_study_ids", []),
+            )
+            return normalized_result
         if not isinstance(result, dict) or not isinstance(result.get("section_text"), str) or not isinstance(result.get("claims"), list):
             raise ValueError("Review writer must return an object with section_text and claims")
-        return {
+        normalized_result = {
             **result,
             "evidence_status": result.get("evidence_status", "available"),
             "writer_called": True,
             "writer_type": result.get("writer_type", _writer_type(writer)),
         }
+        normalized_result["section_validation"] = validate_structured_section_output(
+            section_spec, normalized_result, section_spec.get("included_study_ids", []),
+        )
+        return normalized_result
     raise RuntimeError("Review synthesis requires a configured LLM writer or an explicit offline mode")
 
 
@@ -247,6 +258,164 @@ def _writer_type(writer: Callable[..., Any]) -> str:
     if name == "_placeholder_writer":
         return "placeholder"
     return "injected"
+
+
+def _normalise_coverage_text(value: str) -> str:
+    value = re.sub(r"[`*_]", "", str(value))
+    value = re.sub(r"\s+", " ", value, flags=re.UNICODE)
+    return value.strip().casefold()
+
+
+def _as_id_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _claim_study_ids(claim: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in (
+        "supporting_study_ids", "supporting_studies", "contradicting_study_ids",
+        "contradicting_studies", "study_ids",
+    ):
+        values.extend(_as_id_list(claim.get(key)))
+    for key in ("citation", "citations", "citation_ids"):
+        value = claim.get(key)
+        if isinstance(value, str) and value.strip():
+            values.append(value.strip())
+        elif isinstance(value, list):
+            values.extend(str(item).strip() for item in value if str(item).strip())
+    return list(dict.fromkeys(values))
+
+
+def _extract_study_citations(text: str, known_ids: set[str]) -> list[str]:
+    """Find known IDs in prose and bracket citations without topic heuristics."""
+    citations: list[str] = []
+    for study_id in sorted(known_ids, key=len, reverse=True):
+        if re.search(rf"(?<![A-Za-z0-9]){re.escape(study_id)}(?![A-Za-z0-9])", text):
+            citations.append(study_id)
+    return citations
+
+
+def _split_section_sentences(text: str) -> list[str]:
+    sentences: list[str] = []
+    for line in str(text).splitlines():
+        line = re.sub(r"^\s*(?:[-*+]\s+|>\s+|#{1,6}\s+)", "", line).strip()
+        if not line:
+            continue
+        pieces = re.split(r"(?<=[.!?。！？])\s+", line)
+        sentences.extend(piece.strip() for piece in pieces if piece.strip())
+    return sentences
+
+
+def validate_structured_section_output(
+    section_spec: dict[str, Any], writer_result: Any, eligible_study_ids: Iterable[str], *, raise_on_failure: bool = False,
+) -> dict[str, Any]:
+    """Validate that section prose and structured claims cover one another.
+
+    The check is intentionally conservative rather than a natural-language
+    entailment system: every non-structural sentence must map to a claim, and
+    every study citation must be represented by a claim.  Callers may request
+    an exception, while the default return value remains useful for audit
+    artifacts and diagnostics.
+    """
+    allowed_ids = {str(value) for value in eligible_study_ids if str(value)}
+    section_ids = {str(value) for value in section_spec.get("included_study_ids", allowed_ids) if str(value)}
+    evidence_available = bool(section_ids)
+    metadata: dict[str, Any] = {
+        "schema_version": SECTION_VALIDATION_SCHEMA_VERSION,
+        "section_id": str(section_spec.get("section_id", "")),
+        "claim_count": 0,
+        "citation_count": 0,
+        "mapped_citation_count": 0,
+        "unmapped_citations": [],
+        "unmapped_sentences": [],
+        "errors": [],
+        "coverage_status": "passed",
+    }
+    errors: list[str] = metadata["errors"]
+
+    if not isinstance(writer_result, dict):
+        errors.append("writer_result_not_object")
+        writer_result = {}
+    section_text = writer_result.get("section_text")
+    claims = writer_result.get("claims")
+    if not isinstance(section_text, str):
+        errors.append("section_text_not_string")
+        section_text = ""
+    if not isinstance(claims, list):
+        errors.append("claims_not_list")
+        claims = []
+
+    metadata["claim_count"] = len(claims)
+    if evidence_available and not claims:
+        errors.append("nonempty_section_zero_claims")
+    if not evidence_available and claims:
+        errors.append("empty_evidence_section_has_claims")
+
+    normalised_section = _normalise_coverage_text(section_text)
+    valid_claims: list[dict[str, Any]] = []
+    claim_ids: set[str] = set()
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            errors.append(f"claim_{index}_not_object")
+            continue
+        sentence = str(claim.get("sentence", "")).strip()
+        if not sentence:
+            errors.append(f"claim_{index}_sentence_empty")
+            continue
+        valid_claims.append(claim)
+        if _normalise_coverage_text(sentence) not in normalised_section:
+            errors.append(f"claim_{index}_sentence_absent_from_section")
+        ids = _claim_study_ids(claim)
+        claim_ids.update(ids)
+        citation_blob = json.dumps(
+            {key: claim.get(key) for key in ("citation", "citations", "citation_ids")},
+            ensure_ascii=False,
+        )
+        for study_id in ids:
+            if study_id not in sentence and study_id not in citation_blob:
+                errors.append(f"claim_{index}_citation_not_in_sentence_or_citation_field:{study_id}")
+            if study_id not in section_ids:
+                errors.append(f"claim_{index}_study_outside_section:{study_id}")
+            elif study_id not in allowed_ids:
+                errors.append(f"claim_{index}_study_not_eligible:{study_id}")
+
+    citations = _extract_study_citations(section_text, allowed_ids | section_ids)
+    metadata["citation_count"] = len(citations)
+    unmapped = sorted(set(citations) - claim_ids)
+    metadata["unmapped_citations"] = unmapped
+    metadata["mapped_citation_count"] = len(citations) - len(unmapped)
+    if unmapped:
+        errors.append("section_citation_not_in_claim_map")
+    if evidence_available and not citations:
+        errors.append("evidence_section_has_no_study_citation")
+
+    configured_patterns = section_spec.get("non_substantive_sentence_patterns", [])
+    patterns = [re.compile(str(pattern), re.IGNORECASE) for pattern in configured_patterns if str(pattern)] if isinstance(configured_patterns, list) else []
+    insufficient_text = _normalise_coverage_text(
+        str(section_spec.get("insufficient_evidence_text") or "Evidence is insufficient for this protocol-required section.")
+    )
+    unmapped_sentences: list[str] = []
+    claim_sentences = [_normalise_coverage_text(str(claim.get("sentence", ""))) for claim in valid_claims]
+    for sentence in _split_section_sentences(section_text):
+        normalised = _normalise_coverage_text(sentence)
+        if not normalised or normalised == insufficient_text or any(pattern.search(sentence) for pattern in patterns):
+            continue
+        if not any(normalised in claim_sentence or claim_sentence in normalised for claim_sentence in claim_sentences):
+            unmapped_sentences.append(sentence)
+    metadata["unmapped_sentences"] = unmapped_sentences
+    if unmapped_sentences:
+        errors.append("substantive_sentence_not_mapped")
+
+    if errors:
+        metadata["coverage_status"] = "failed"
+    if raise_on_failure and errors:
+        raise ValueError(
+            f"Invalid structured output for section {metadata['section_id'] or '<unknown>'}: "
+            + "; ".join(dict.fromkeys(errors))
+        )
+    return metadata
 
 
 def synthesize_review(
@@ -271,19 +440,41 @@ def synthesize_review(
     draft_dir = project.root / "synthesis" / "section_drafts"
     draft_dir.mkdir(parents=True, exist_ok=True)
     structured_sections: list[dict[str, Any]] = []
+    section_validations: list[dict[str, Any]] = []
     for spec in plan["sections"]:
         result = write_section(spec, by_section.get(spec["section_id"], []), {"protocol": protocol, "model": selected_model}, "review", writer)
         content = result["section_text"]
         structured_sections.append({"section_id": spec["section_id"], **result})
+        section_validations.append(dict(result.get("section_validation", {})))
         atomic_write_text(draft_dir / f"{spec['section_id']}.md", content + "\n")
         sections.extend([f"## {spec['title']}", "", content, ""])
+        if result.get("section_validation", {}).get("coverage_status") == "failed" and not offline_placeholder:
+            validation_payload = {
+                "schema_version": SECTION_VALIDATION_SCHEMA_VERSION,
+                "protocol_hash": plan["protocol_hash"],
+                "status": "failed",
+                "sections": section_validations,
+            }
+            write_json(project.root / "synthesis" / "section_validation.json", validation_payload)
+            write_json(project.root / "synthesis" / "claim_map.json", {
+                "schema_version": "1.1", "protocol_hash": plan["protocol_hash"],
+                "status": "invalid", "claims": [],
+                "section_validation_errors": section_validations,
+            })
+            raise ValueError(f"Structured synthesis coverage failed for section {spec['section_id']}")
     report = "\n".join(sections).rstrip() + "\n"
     atomic_write_text(project.root / "synthesis" / "review_draft.md", report)
+    validation_status = "failed" if any(item.get("coverage_status") == "failed" for item in section_validations) else "passed"
+    write_json(project.root / "synthesis" / "section_validation.json", {
+        "schema_version": SECTION_VALIDATION_SCHEMA_VERSION,
+        "protocol_hash": plan["protocol_hash"], "status": validation_status,
+        "sections": section_validations,
+    })
     build_claim_map(project, report, plan, structured_sections)
     write_json(project.root / "synthesis" / "synthesis_metadata.json", {
         "schema_version": "1.0", "protocol_hash": plan["protocol_hash"], "model": selected_model,
         "writer": "offline_placeholder" if offline_placeholder else ("injected" if not isinstance(writer, ReviewLLMWriter) else "llm"),
-        "placeholder": offline_placeholder,
+        "placeholder": offline_placeholder, "section_validation_status": validation_status,
     })
     return report
 
