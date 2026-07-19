@@ -56,6 +56,12 @@ class Protocol:
         enforcement = data.get("screening", {}).get("enforcement", "optional")
         if enforcement not in {"required", "optional", "disabled"}:
             raise ConfigurationError("screening.enforcement must be required, optional, or disabled")
+        fulltext = data.get("fulltext", {})
+        if not isinstance(fulltext, dict):
+            raise ConfigurationError("fulltext must be a mapping")
+        fulltext_requirement = fulltext.get("requirement", "required")
+        if fulltext_requirement not in {"required", "structured_extraction_allowed", "disabled"}:
+            raise ConfigurationError("fulltext.requirement must be required, structured_extraction_allowed, or disabled")
         return cls(data=data)
 
     @property

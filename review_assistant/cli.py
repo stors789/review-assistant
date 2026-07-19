@@ -17,6 +17,7 @@ from .review_synthesis import fixture_writer, synthesize_review
 from .run_state import RunState
 from .screening import ScreeningStore
 from .studies import StudyExtractionStore, extract_fulltext_documents
+from .eligibility import resolve_fulltext_status
 
 STAGES = ["search", "screen", "fulltext", "extract", "matrix", "analyze", "synthesize", "audit"]
 
@@ -161,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "fulltext":
         result = fulltext_status(project)
         print(json.dumps(result, ensure_ascii=False))
-        return 1 if result["missing_record_ids"] else 0
+        return 1 if result["blocking_record_ids"] else 0
     if args.command == "extract":
         if args.input:
             payload = json.loads(args.input.read_text(encoding="utf-8"))
@@ -181,7 +182,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "synthesize":
         injected = fixture_writer if args.offline_fixture_writer else None
-        synthesize_review(project, injected, model=args.model, offline_placeholder=args.offline_placeholder)
+        try:
+            synthesize_review(project, injected, model=args.model, offline_placeholder=args.offline_placeholder)
+        except Exception as exc:
+            print(f"Synthesis execution failed: {exc}", file=sys.stderr)
+            return 1
         return 0
     if args.command == "audit":
         try:
@@ -249,37 +254,43 @@ def _require(path: Path, instruction: str) -> None:
 
 def _require_screening(project: ReviewProject) -> None:
     path = project.root / "screening" / "decision_history.jsonl"
-    if not path.exists() or not path.read_text(encoding="utf-8").strip():
+    history_present = path.exists() and bool(path.read_text(encoding="utf-8").strip())
+    if project.protocol.data.get("screening", {}).get("enforcement", "optional") == "required" and not history_present:
         raise WaitingForInput("Import screening decisions with `review-assistant review screen import`")
+    if not history_present:
+        return
+    from .screening import resolve_screening_completeness
+    from .io_utils import read_jsonl
+    if not read_jsonl(project.root / "search" / "deduplicated_records.jsonl"):
+        # Preserve the legacy manually assembled workflow until a formal
+        # search stage has produced a denominator.
+        return
+    completeness = resolve_screening_completeness(project)
+    if completeness.get("screening_required") and any(
+        completeness.get(key) for key in (
+            "title_abstract_missing_ids", "title_abstract_uncertain_ids",
+            "fulltext_missing_ids", "fulltext_uncertain_ids", "illegal_state_ids",
+        )
+    ):
+        missing = sorted({record_id for key in (
+            "title_abstract_missing_ids", "title_abstract_uncertain_ids",
+            "fulltext_missing_ids", "fulltext_uncertain_ids", "illegal_state_ids",
+        ) for record_id in completeness.get(key, [])})
+        raise WaitingForInput(f"Complete required screening for records: {', '.join(missing)}")
 
 
 def fulltext_status(project: ReviewProject) -> dict[str, Any]:
-    from .eligibility import latest_screening_decisions
-    from .io_utils import read_jsonl
-    decisions = latest_screening_decisions(project)
-    included = {rid for (rid, stage), item in decisions.items() if stage == "fulltext" and item.get("decision") == "include"}
-    links = read_jsonl(project.root / "extraction" / "record_publication_links.jsonl")
-    structured = {str(item.get("record_id")) for item in links if item.get("record_id")}
-    records = {str(item.get("record_id")): item for item in read_jsonl(project.root / "search" / "deduplicated_records.jsonl")}
-    available = set(structured)
-    files = []
-    for path in (project.root / "fulltext").glob("*"):
-        if path.is_file():
-            files.append(path.name)
-    for rid in included:
-        record = records.get(rid, {})
-        configured = record.get("source_file") or record.get("full_text_file") or record.get("file")
-        if configured:
-            candidate = Path(str(configured))
-            if candidate.exists() or (project.root / "fulltext" / candidate.name).exists():
-                available.add(rid)
-    return {"included_record_ids": sorted(included), "available_record_ids": sorted(included & available), "missing_record_ids": sorted(included - available), "files": sorted(files)}
+    result = resolve_fulltext_status(project)
+    result["files"] = sorted(path.name for path in (project.root / "fulltext").glob("*") if path.is_file())
+    return result
 
 
 def _require_fulltext(project: ReviewProject) -> None:
     result = fulltext_status(project)
-    if result["missing_record_ids"]:
-        raise WaitingForInput(f"Provide and bind full text for records: {', '.join(result['missing_record_ids'])}")
+    if result["blocking_record_ids"]:
+        if result["requirement"] == "structured_extraction_allowed":
+            raise WaitingForInput(f"Provide structured extraction for records: {', '.join(result['blocking_record_ids'])}")
+        raise WaitingForInput(f"Provide and bind full text for records: {', '.join(result['blocking_record_ids'])}")
 
 
 if __name__ == "__main__":
