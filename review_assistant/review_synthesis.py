@@ -217,7 +217,9 @@ def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, 
             "writer_called": False,
             "writer_type": "none",
         }
-        result["section_validation"] = validate_structured_section_output(section_spec, result, [])
+        result["section_validation"] = validate_structured_section_output(
+            section_spec, result, synthesis_context.get("eligible_study_ids", []),
+        )
         return result
 
     if writer:
@@ -232,7 +234,7 @@ def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, 
                 "writer_type": _writer_type(writer),
             }
             normalized_result["section_validation"] = validate_structured_section_output(
-                section_spec, normalized_result, section_spec.get("included_study_ids", []),
+                section_spec, normalized_result, synthesis_context.get("eligible_study_ids", section_spec.get("included_study_ids", [])),
             )
             return normalized_result
         if not isinstance(result, dict) or not isinstance(result.get("section_text"), str) or not isinstance(result.get("claims"), list):
@@ -244,7 +246,7 @@ def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, 
             "writer_type": result.get("writer_type", _writer_type(writer)),
         }
         normalized_result["section_validation"] = validate_structured_section_output(
-            section_spec, normalized_result, section_spec.get("included_study_ids", []),
+            section_spec, normalized_result, synthesis_context.get("eligible_study_ids", section_spec.get("included_study_ids", [])),
         )
         return normalized_result
     raise RuntimeError("Review synthesis requires a configured LLM writer or an explicit offline mode")
@@ -443,7 +445,33 @@ def synthesize_review(
     structured_sections: list[dict[str, Any]] = []
     section_validations: list[dict[str, Any]] = []
     for spec in plan["sections"]:
-        result = write_section(spec, by_section.get(spec["section_id"], []), {"protocol": protocol, "model": selected_model}, "review", writer)
+        try:
+            result = write_section(
+                spec, by_section.get(spec["section_id"], []),
+                {"protocol": protocol, "model": selected_model, "eligible_study_ids": eligible_study_ids(project)},
+                "review", writer,
+            )
+        except Exception as exc:
+            failure = {
+                "schema_version": SECTION_VALIDATION_SCHEMA_VERSION,
+                "section_id": spec["section_id"], "claim_count": 0,
+                "citation_count": 0, "mapped_citation_count": 0,
+                "unmapped_citations": [], "unmapped_sentences": [],
+                "errors": [f"writer_execution_or_structure_error:{type(exc).__name__}: {exc}"],
+                "coverage_status": "failed", "evidence_status": "available",
+                "writer_called": bool(writer), "writer_type": _writer_type(writer) if writer else "none",
+            }
+            section_validations.append(failure)
+            write_json(project.root / "synthesis" / "section_validation.json", {
+                "schema_version": SECTION_VALIDATION_SCHEMA_VERSION,
+                "protocol_hash": plan["protocol_hash"], "status": "failed",
+                "sections": section_validations,
+            })
+            write_json(project.root / "synthesis" / "claim_map.json", {
+                "schema_version": "1.1", "protocol_hash": plan["protocol_hash"],
+                "status": "invalid", "claims": [], "section_validation_errors": section_validations,
+            })
+            raise
         content = result["section_text"]
         structured_sections.append({"section_id": spec["section_id"], **result})
         section_validation = dict(result.get("section_validation", {}))

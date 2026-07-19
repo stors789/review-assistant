@@ -167,11 +167,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.input:
             payload = json.loads(args.input.read_text(encoding="utf-8"))
             StudyExtractionStore(project).ingest(payload)
+            resolve_fulltext_status(project)
             return 0
         pdfs = sorted(args.fulltext_dir.glob("*.pdf"))
         if not pdfs:
             raise SystemExit(f"No PDFs found in {args.fulltext_dir}")
         result = extract_fulltext_documents(project, pdfs, model=args.model)
+        resolve_fulltext_status(project)
         print(json.dumps(result))
         return 1 if result["failed"] else 0
     if args.command == "matrix":

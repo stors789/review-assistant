@@ -160,6 +160,7 @@ def resolve_eligibility(project: ReviewProject) -> EligibilityResult:
     decisions = latest_screening_decisions(project)
     fulltext = {rid: item for (rid, stage), item in decisions.items() if stage == "fulltext"}
     screened_included = {rid for rid, item in fulltext.items() if item.get("decision") == "include"}
+    screened_included &= set(completeness["all_search_record_ids"])
     if enforcement == "required":
         included = screened_included & set(completeness["title_abstract_included_ids"])
     else:
