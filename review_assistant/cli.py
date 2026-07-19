@@ -18,7 +18,11 @@ from .run_state import RunState
 from .screening import ScreeningStore
 from .studies import StudyExtractionStore, extract_fulltext_documents
 
-STAGES = ["search", "screen", "extract", "matrix", "analyze", "synthesize", "audit"]
+STAGES = ["search", "screen", "fulltext", "extract", "matrix", "analyze", "synthesize", "audit"]
+
+
+class WaitingForInput(RuntimeError):
+    pass
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     _project_arg(search)
     search.add_argument("--search-id")
     search.add_argument("--limit", type=int, default=100)
+    search.add_argument("--allow-empty-search", action="store_true")
     screen = commands.add_parser("screen")
     screen_sub = screen.add_subparsers(dest="screen_command", required=True)
     screen_import = screen_sub.add_parser("import")
@@ -88,6 +93,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--strict", action="store_true")
     run.add_argument("--config", type=Path)
+    run.add_argument("--model")
+    run_mode = run.add_mutually_exclusive_group()
+    run_mode.add_argument("--offline-placeholder", action="store_true")
+    run_mode.add_argument("--offline-fixture-writer", action="store_true", help=argparse.SUPPRESS)
+    run.add_argument("--allow-empty-search", action="store_true")
     return parser
 
 
@@ -138,16 +148,20 @@ def main(argv: list[str] | None = None) -> int:
     project = ReviewProject.load(args.project)
     project.validate()
     if args.command == "search":
-        result = SearchOrchestrator(project, default_search_runners()).run(args.search_id, args.limit)
+        try:
+            result = SearchOrchestrator(project, default_search_runners()).run(args.search_id, args.limit, allow_empty=args.allow_empty_search)
+        except Exception as exc:
+            print(f"Search execution failed: {exc}", file=sys.stderr)
+            return 1
         return 1 if result.failures else 0
     if args.command == "screen":
         count = ScreeningStore(project).import_csv(args.csv, _mapping(args.map), default_stage=args.stage, default_reviewer=args.reviewer)
         print(f"Imported {count} decisions")
         return 0
     if args.command == "fulltext":
-        pdfs = sorted((project.root / "fulltext").glob("*.pdf"))
-        print(json.dumps({"count": len(pdfs), "files": [path.name for path in pdfs]}, ensure_ascii=False))
-        return 0
+        result = fulltext_status(project)
+        print(json.dumps(result, ensure_ascii=False))
+        return 1 if result["missing_record_ids"] else 0
     if args.command == "extract":
         if args.input:
             payload = json.loads(args.input.read_text(encoding="utf-8"))
@@ -197,12 +211,13 @@ def run_pipeline(project: ReviewProject, args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     actions = {
-        "search": lambda: (SearchOrchestrator(project, default_search_runners()).run(), ["search/search_log.jsonl", "search/deduplicated_records.jsonl"]),
-        "screen": lambda: (_require(project.root / "screening" / "decision_history.jsonl", "Import screening decisions with `review-assistant review screen import`"), ["screening/decision_history.jsonl", "screening/prisma_counts.json"]),
+        "search": lambda: (SearchOrchestrator(project, default_search_runners()).run(allow_empty=args.allow_empty_search), ["search/search_log.jsonl", "search/deduplicated_records.jsonl"]),
+        "screen": lambda: (_require_screening(project), ["screening/decision_history.jsonl", "screening/prisma_counts.json"]),
+        "fulltext": lambda: (_require_fulltext(project), ["fulltext", "extraction/record_publication_links.jsonl"]),
         "extract": lambda: (_require(project.root / "extraction" / "studies.jsonl", "Run `review-assistant review extract --input ...` after full-text screening"), ["extraction/publications.jsonl", "extraction/studies.jsonl", "extraction/outcomes.jsonl"]),
         "matrix": lambda: (EvidenceMatrixBuilder(project).build(), ["evidence/evidence_matrix.csv", "evidence/evidence_matrix.json"]),
         "analyze": lambda: (ContradictionAnalyzer(project).analyze(), ["evidence/contradiction_groups.json", "evidence/heterogeneity_report.md"]),
-        "synthesize": lambda: (synthesize_review(project), ["synthesis/review_draft.md", "synthesis/claim_map.json"]),
+        "synthesize": lambda: (synthesize_review(project, fixture_writer if args.offline_fixture_writer else None, model=args.model, offline_placeholder=args.offline_placeholder), ["synthesis/review_draft.md", "synthesis/claim_map.json", "synthesis/synthesis_metadata.json"]),
         "audit": lambda: (ReviewAuditor(project).run(), ["audit/audit_summary.json"]),
     }
     try:
@@ -213,6 +228,10 @@ def run_pipeline(project: ReviewProject, args: argparse.Namespace) -> int:
             _, outputs = actions[stage]()
             state.finish_stage(stage, outputs)
         state.finish()
+    except WaitingForInput as exc:
+        state.wait_stage(stage, str(exc))
+        print(f"Stage {stage} is waiting for input: {exc}", file=sys.stderr)
+        return 1
     except Exception as exc:
         state.fail_stage(stage, exc)
         print(f"Stage {stage} failed: {exc}", file=sys.stderr)
@@ -226,6 +245,41 @@ def run_pipeline(project: ReviewProject, args: argparse.Namespace) -> int:
 def _require(path: Path, instruction: str) -> None:
     if not path.exists():
         raise RuntimeError(f"Required artifact missing: {path}. {instruction}")
+
+
+def _require_screening(project: ReviewProject) -> None:
+    path = project.root / "screening" / "decision_history.jsonl"
+    if not path.exists() or not path.read_text(encoding="utf-8").strip():
+        raise WaitingForInput("Import screening decisions with `review-assistant review screen import`")
+
+
+def fulltext_status(project: ReviewProject) -> dict[str, Any]:
+    from .eligibility import latest_screening_decisions
+    from .io_utils import read_jsonl
+    decisions = latest_screening_decisions(project)
+    included = {rid for (rid, stage), item in decisions.items() if stage == "fulltext" and item.get("decision") == "include"}
+    links = read_jsonl(project.root / "extraction" / "record_publication_links.jsonl")
+    structured = {str(item.get("record_id")) for item in links if item.get("record_id")}
+    records = {str(item.get("record_id")): item for item in read_jsonl(project.root / "search" / "deduplicated_records.jsonl")}
+    available = set(structured)
+    files = []
+    for path in (project.root / "fulltext").glob("*"):
+        if path.is_file():
+            files.append(path.name)
+    for rid in included:
+        record = records.get(rid, {})
+        configured = record.get("source_file") or record.get("full_text_file") or record.get("file")
+        if configured:
+            candidate = Path(str(configured))
+            if candidate.exists() or (project.root / "fulltext" / candidate.name).exists():
+                available.add(rid)
+    return {"included_record_ids": sorted(included), "available_record_ids": sorted(included & available), "missing_record_ids": sorted(included - available), "files": sorted(files)}
+
+
+def _require_fulltext(project: ReviewProject) -> None:
+    result = fulltext_status(project)
+    if result["missing_record_ids"]:
+        raise WaitingForInput(f"Provide and bind full text for records: {', '.join(result['missing_record_ids'])}")
 
 
 if __name__ == "__main__":

@@ -68,7 +68,7 @@ class RunState:
                 continue
             import json
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            if metadata.get("status") not in {"failed", "running"}:
+            if metadata.get("status") not in {"failed", "running", "waiting_for_input"}:
                 continue
             status_path = root / "stage_status.json"
             status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {"stages": {}}
@@ -92,6 +92,12 @@ class RunState:
         self.stages[stage].update(status="failed", finished_at=now(), error=f"{type(error).__name__}: {error}")
         append_jsonl(self.root / "errors.jsonl", [{"timestamp": now(), "stage": stage, "error": f"{type(error).__name__}: {error}"}])
         self.metadata.update(status="failed", finished_at=now(), failure_summary=str(error))
+        self._flush()
+
+    def wait_stage(self, stage: str, instruction: str) -> None:
+        self.stages.setdefault(stage, {})
+        self.stages[stage].update(status="waiting_for_input", finished_at=now(), instruction=instruction)
+        self.metadata.update(status="waiting_for_input", finished_at=now(), waiting_instruction=instruction)
         self._flush()
 
     def finish(self) -> None:

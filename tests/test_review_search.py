@@ -54,8 +54,18 @@ class ReviewSearchTests(unittest.TestCase):
 
     def test_disabled_search_is_not_called(self):
         write_yaml(self.project.root / "search_plan.yaml", {"searches": [{"id": "off", "source": "missing", "query": "x", "enabled": False}]})
-        result = SearchOrchestrator(self.project, {}).run()
+        result = SearchOrchestrator(self.project, {}).run(allow_empty=True)
         self.assertEqual(result.records, [])
+
+    def test_empty_search_plan_fails_without_explicit_override(self):
+        write_yaml(self.project.root / "search_plan.yaml", {"searches": [], "seed_records": []})
+        with self.assertRaisesRegex(ValueError, "no enabled searches or seed records"):
+            SearchOrchestrator(self.project, {}).run()
+
+    def test_seed_records_are_valid_search_inputs(self):
+        write_yaml(self.project.root / "search_plan.yaml", {"searches": [], "seed_records": [{"title": "Seed record"}]})
+        result = SearchOrchestrator(self.project, {}).run()
+        self.assertEqual([item["title"] for item in result.records], ["Seed record"])
 
 
 if __name__ == "__main__":

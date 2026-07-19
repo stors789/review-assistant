@@ -48,7 +48,7 @@ class SearchOrchestrator:
         self.runners = runners
         self.tool_version = tool_version
 
-    def run(self, search_id: str | None = None, limit: int = 100) -> SearchRunResult:
+    def run(self, search_id: str | None = None, limit: int = 100, *, allow_empty: bool = False) -> SearchRunResult:
         plan = load_yaml(self.project.root / "search_plan.yaml")
         searches = plan.get("searches", [])
         if not isinstance(searches, list):
@@ -56,11 +56,23 @@ class SearchOrchestrator:
         selected = [item for item in searches if item.get("enabled", True) and (search_id is None or item.get("id") == search_id)]
         if search_id and not selected:
             raise ValueError(f"Enabled search {search_id!r} was not found")
+        seed_records = plan.get("seed_records", [])
+        if not isinstance(seed_records, list):
+            raise ValueError("search_plan.seed_records must be a list")
+        if not selected and not seed_records and not allow_empty:
+            raise ValueError("search plan has no enabled searches or seed records; configure search_plan.yaml or pass --allow-empty-search")
 
         raw: list[dict[str, Any]] = []
         logs: list[dict[str, Any]] = []
         failures = 0
         protocol_hash = self.project.track_protocol()
+        for index, record in enumerate(seed_records):
+            if not isinstance(record, dict):
+                raise ValueError("each seed record must be a mapping")
+            enriched = dict(record)
+            enriched["search_provenance"] = [{"search_id": "seed", "source": "seed", "query": "", "run_id": "seed"}]
+            enriched["raw_record_id"] = str(record.get("raw_record_id") or stable_id("record", "seed", record_key(record), index))
+            raw.append(enriched)
         for spec in selected:
             started_at = _now()
             started = time.monotonic()

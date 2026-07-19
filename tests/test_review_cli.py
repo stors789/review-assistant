@@ -31,7 +31,11 @@ class ReviewCliTests(unittest.TestCase):
         code = main(["review", "run", "--project", str(self.root), "--from-stage", "screen", "--to-stage", "screen"])
         self.assertEqual(code, 1)
         run = next((self.root / "runs").iterdir())
-        self.assertIn("Import screening decisions", (run / "errors.jsonl").read_text())
+        metadata = json.loads((run / "metadata.json").read_text())
+        stage_status = json.loads((run / "stage_status.json").read_text())
+        self.assertEqual(metadata["status"], "waiting_for_input")
+        self.assertEqual(stage_status["stages"]["screen"]["status"], "waiting_for_input")
+        self.assertIn("Import screening decisions", metadata["waiting_instruction"])
 
     def test_resume_reuses_failed_run_after_prerequisite_is_added(self):
         self.assertEqual(main(["review", "run", "--project", str(self.root), "--from-stage", "screen", "--to-stage", "screen"]), 1)
