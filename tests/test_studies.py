@@ -80,10 +80,10 @@ class StudyExtractionTests(unittest.TestCase):
             "publication": {"title": "Run state publication"},
             "studies": [{"fields": {}, "outcomes": [{"domain": "configured", "evidence": []}] }],
         }
-        StudyExtractionStore(self.project).ingest(record)
+        _, _, outcomes = StudyExtractionStore(self.project).ingest(record)
         state_path = self.project.root / "extraction" / "current_extraction_state.json"
         state = json.loads(state_path.read_text())
-        state["current_extraction_run_id"] = "run_that_is_not_current"
+        state["outcomes"][outcomes[0].outcome_id]["extraction_run_id"] = "run_that_is_not_current"
         state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2))
 
         self.assertEqual(current_outcomes(self.project), [])
