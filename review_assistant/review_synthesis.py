@@ -198,16 +198,55 @@ PLACEHOLDER_BANNER = "PLACEHOLDER SYNTHESIS — NOT A REVIEW DRAFT"
 def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, Any]], synthesis_context: dict[str, Any], mode: str, writer: Callable[..., Any] | None = None) -> dict[str, Any]:
     if mode not in {"explore", "review"}:
         raise ValueError("mode must be explore or review")
+
+    # Evidence insufficiency is a deterministic protocol state.  Check it
+    # before touching the writer so an LLM cannot turn an empty evidence bundle
+    # into an unsupported scientific conclusion.
+    if mode == "review" and not section_spec.get("included_study_ids"):
+        text = str(
+            section_spec.get("insufficient_evidence_text")
+            or synthesis_context.get("insufficient_evidence_text")
+            or "Evidence is insufficient for this protocol-required section."
+        )
+        return {
+            "section_text": text,
+            "claims": [],
+            "evidence_status": "insufficient",
+            "writer_called": False,
+            "writer_type": "none",
+        }
+
     if writer:
         result = writer(section_spec=section_spec, evidence_bundle=evidence_bundle, synthesis_context=synthesis_context, mode=mode)
         if isinstance(result, str):
-            return {"section_text": result, "claims": [], "compatibility_fallback": True}
+            return {
+                "section_text": result,
+                "claims": [],
+                "compatibility_fallback": True,
+                "evidence_status": "available",
+                "writer_called": True,
+                "writer_type": _writer_type(writer),
+            }
         if not isinstance(result, dict) or not isinstance(result.get("section_text"), str) or not isinstance(result.get("claims"), list):
             raise ValueError("Review writer must return an object with section_text and claims")
-        return result
-    if mode == "review" and not section_spec.get("included_study_ids"):
-        return {"section_text": "Evidence is insufficient for this protocol-required section.", "claims": []}
+        return {
+            **result,
+            "evidence_status": result.get("evidence_status", "available"),
+            "writer_called": True,
+            "writer_type": result.get("writer_type", _writer_type(writer)),
+        }
     raise RuntimeError("Review synthesis requires a configured LLM writer or an explicit offline mode")
+
+
+def _writer_type(writer: Callable[..., Any]) -> str:
+    if isinstance(writer, ReviewLLMWriter):
+        return "llm"
+    name = getattr(writer, "__name__", "")
+    if name == "fixture_writer":
+        return "fixture"
+    if name == "_placeholder_writer":
+        return "placeholder"
+    return "injected"
 
 
 def synthesize_review(

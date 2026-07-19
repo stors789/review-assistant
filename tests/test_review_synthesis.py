@@ -48,6 +48,20 @@ class ReviewSynthesisTests(unittest.TestCase):
         self.assertEqual(gap["missing_evidence"], ["evidence_insufficient"])
         self.assertEqual(len(gap["excluded_study_ids"]), 10)
 
+    def test_empty_evidence_section_does_not_call_writer(self):
+        calls = []
+
+        def writer(**kwargs):
+            calls.append(kwargs["section_spec"]["section_id"])
+            return {"section_text": "Evidence was reported.", "claims": []}
+
+        synthesize_review(self.project, writer)
+        self.assertEqual(calls, ["S01"])
+        self.assertEqual(
+            (self.project.root / "synthesis" / "section_drafts" / "S02.md").read_text().strip(),
+            "Evidence is insufficient for this protocol-required section.",
+        )
+
     def test_composable_outcome_and_study_field_filters(self):
         write_yaml(self.project.root / "synthesis_plan.yaml", {"sections": [{
             "section_id": "S01", "title": "Required evidence", "evidence_filter": {
