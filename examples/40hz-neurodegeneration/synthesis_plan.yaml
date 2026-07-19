@@ -1,7 +1,10 @@
 schema_version: "1.0"
 sections:
-  - {section_id: S01, title: Search and study characteristics}
-  - {section_id: S02, title: Core intervention evidence, required_qualifiers: [separate core and adjacent interventions]}
-  - {section_id: S03, title: Contradictions and heterogeneity}
-  - {section_id: S04, title: Limitations}
+  - {section_id: S01, title: Search and study characteristics, evidence_filter: {include_all_studies: true}}
+  - {section_id: S02, title: Core intervention evidence, required_qualifiers: [separate core and adjacent interventions], evidence_filter: {study_field_equals: {intervention.modality: visual_flicker}}}
+  - {section_id: S03, title: Pathology, evidence_filter: {outcome_domains: [amyloid, tau]}}
+  - {section_id: S04, title: Functional outcomes, evidence_filter: {outcome_domains: [cognition]}}
+  - {section_id: S05, title: Safety, evidence_filter: {outcome_domains: [adverse_events]}}
+  - {section_id: S06, title: Contradictions and heterogeneity, evidence_filter: {contradiction_only: true}}
+  - {section_id: S07, title: Limitations, evidence_filter: {include_all_studies: true}}
 settings: {evidence_batch_size: 10, require_contradiction_handling: true}

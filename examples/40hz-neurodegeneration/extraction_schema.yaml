@@ -6,13 +6,15 @@ fields:
   intervention.modality: {type: enum, values: [visual_flicker, multisensory, other, unclear], required: true, missing_value: not_reported, description: Configured stimulation modality, evidence_requirement: quote}
   intervention.frequency_hz: {type: number, required: false, missing_value: not_reported, description: Reported frequency, evidence_requirement: quote}
   intervention.duration: {type: string, required: false, missing_value: not_reported, description: Reported duration, evidence_requirement: quote}
-  outcomes:
-    type: list
-    required: true
-    item_schema:
-      domain: {type: string, required: true}
-      direction: {type: enum, values: [increase, decrease, no_change, mixed, unclear], required: true}
-      evidence_quote: {type: string, required: true}
-      page: {type: string, required: false}
-matrix: {columns: [publication_id, study_id, study.design, population.model, population.stage, intervention.modality, intervention.frequency_hz, intervention.duration, outcome_domains, evidence_direction, quote_validation_status]}
+outcome_schema:
+  domain: {type: string, required: true}
+  effect_direction: {type: enum, values: [increase, decrease, no_change, mixed, unclear], required: true}
+  support_relation: {type: enum, values: [supports, contradicts, neutral, mixed, unclear], required: true}
+  evidence: {type: list, required: true, item_schema: {quote: {type: string, required: true}, page: {type: string, required: false}}}
+outcome_domains:
+  amyloid: {beneficial_direction: decrease}
+  tau: {beneficial_direction: decrease}
+  cognition: {beneficial_direction: increase}
+  adverse_events: {beneficial_direction: decrease}
+matrix: {columns: [publication_id, study_id, study.design, population.model, population.stage, intervention.modality, intervention.frequency_hz, intervention.duration, outcome_domains, effect_directions, support_relations, quote_validation_status]}
 contradiction_analysis: {claim_dimensions: [outcome.domain, population.model, intervention.modality], moderator_candidates: [population.stage, intervention.duration, intervention.frequency_hz, study.design]}

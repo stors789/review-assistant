@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from review_assistant.project import ReviewProject
+from review_assistant.io_utils import load_yaml, write_yaml
 from review_assistant.studies import StudyExtractionStore, extract_fulltext_documents, field_focus_terms, publication_id, study_id
 
 
@@ -40,6 +41,9 @@ class StudyExtractionTests(unittest.TestCase):
         self.assertIn("configured alias", terms)
 
     def test_fulltext_extraction_uses_injected_schema_driven_extractor(self):
+        protocol = load_yaml(self.project.root / "protocol.yaml")
+        protocol["screening"]["enforcement"] = "disabled"
+        write_yaml(self.project.root / "protocol.yaml", protocol)
         pdf = Path(self.tmp.name) / "paper.pdf"
         pdf.write_bytes(b"placeholder")
         payload = {"publication": {"title": "P"}, "studies": [{"fields": {}, "outcomes": [{"domain": "x", "direction": "unclear", "evidence": [{"quote": "reported text"}]}]}]}

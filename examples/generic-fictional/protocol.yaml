@@ -19,4 +19,5 @@ synthesis:
   required_sections: [Evidence overview, Contradictions and limitations]
   required_questions: ["What directions and limitations were reported?"]
 screening:
+  enforcement: disabled
   reason_codes: [wrong_sample, wrong_condition, wrong_measure, wrong_design, duplicate, no_full_text, insufficient_data, other]

@@ -16,7 +16,8 @@ eligibility:
   inclusion_criteria: [Reports original outcome data]
   exclusion_criteria: [Does not isolate an eligible intervention]
 synthesis:
-  required_sections: [Search and study characteristics, Core intervention evidence, Contradictions and heterogeneity, Limitations]
+  required_sections: [Search and study characteristics, Core intervention evidence, Pathology, Functional outcomes, Safety, Contradictions and heterogeneity, Limitations]
   required_questions: ["What was measured and under which configured conditions?"]
 screening:
+  enforcement: required
   reason_codes: [wrong_model, wrong_intervention, wrong_outcome, wrong_study_type, duplicate, no_full_text, insufficient_data, other]

@@ -1,7 +1,7 @@
 {
   "publication": {"title": "Fictional report one", "year": "2026", "authors": ["Example Author"]},
   "studies": [
-    {"label": "sample-a", "fields": {"study.design": "fictional controlled study", "sample.material": "material-a", "condition.level": 2}, "arms": [{"role": "condition", "label": "configured"}, {"role": "control", "label": "comparison"}], "outcomes": [{"domain": "configured measure", "direction": "increase", "evidence": [{"quote": "The configured measure increased in material-a.", "page": "1", "section": "Results"}]}]},
-    {"label": "sample-b", "fields": {"study.design": "fictional controlled study", "sample.material": "material-b"}, "outcomes": [{"domain": "configured measure", "direction": "no_change", "evidence": [{"quote": "No change in the configured measure was observed.", "page": "2", "section": "Results"}]}]}
+    {"label": "sample-a", "fields": {"study.design": "fictional controlled study", "sample.material": "material-a", "condition.level": 2}, "arms": [{"role": "condition", "label": "configured"}, {"role": "control", "label": "comparison"}], "outcomes": [{"domain": "configured measure", "effect_direction": "increase", "support_relation": "supports", "evidence": [{"quote": "The configured measure increased in material-a.", "page": "1", "section": "Results", "manual_verified": true}]}]},
+    {"label": "sample-b", "fields": {"study.design": "fictional controlled study", "sample.material": "material-b"}, "outcomes": [{"domain": "configured measure", "effect_direction": "no_change", "support_relation": "neutral", "evidence": [{"quote": "No change in the configured measure was observed.", "page": "2", "section": "Results", "manual_verified": true}]}]}
   ]
 }

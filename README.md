@@ -12,6 +12,8 @@ It helps you move from a folder of papers to structured notes, claim verificatio
 
 Review Assistant supports both the existing exploratory narrative workflow and a protocol-driven, auditable Review workflow. See [Protocol-driven Review mode](./docs/review-mode.md) for configuration, CLI commands, offline tutorial, artifacts, and migration guidance.
 
+Review mode is a staged workflow, not a command that silently replaces human screening. Full-text decisions and record/publication/study links gate every downstream artifact; default synthesis calls the configured LLM for structured prose and claims, while strict audit distinguishes passed (`0`), issues (`2`), and execution errors (`1`).
+
 - **能力A · 文献拆解**: Decompose PDFs into structured paper notes.
 - **能力B · 主张验证**: Verify claims in a paragraph against papers in a Zotero collection.
 - **能力C · 数据库查询**: Browse Zotero collections and check local PDF coverage.

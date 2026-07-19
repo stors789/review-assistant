@@ -1,4 +1,4 @@
 searches:
   - {id: fictional_primary, source: pubmed, query: "replace with a real query", enabled: false}
-seed_records: []
+seed_records: [{title: Fictional report one}]
 citation_chasing: {backward: false, forward: false}

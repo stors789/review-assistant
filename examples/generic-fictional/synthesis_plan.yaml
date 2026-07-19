@@ -1,5 +1,5 @@
 schema_version: "1.0"
 sections:
-  - {section_id: S01, title: Evidence overview, required_qualifiers: [fictional evidence only]}
-  - {section_id: S02, title: Contradictions and limitations}
+  - {section_id: S01, title: Evidence overview, required_qualifiers: [fictional evidence only], evidence_filter: {include_all_studies: true}}
+  - {section_id: S02, title: Contradictions and limitations, evidence_filter: {include_all_studies: true}}
 settings: {evidence_batch_size: 3, require_contradiction_handling: true}

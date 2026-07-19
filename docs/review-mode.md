@@ -15,7 +15,7 @@ review-assistant review init ./my-review --template generic-structured-review
 
 Available bundled templates are `generic-structured-review`, `biomedical-intervention`, and `animal-intervention`. A project contains `project.yaml`, `protocol.yaml`, `search_plan.yaml`, `extraction_schema.yaml`, `synthesis_plan.yaml`, stage directories, and `runs/`.
 
-`protocol.yaml` defines the primary/secondary questions, scope, inclusion/exclusion criteria, configured screening reason codes, and required synthesis sections. Formal runs hash it. When it changes, `protocol_changes.jsonl` records the old/new hash, timestamp, changed top-level fields, and optional reason.
+`protocol.yaml` defines the primary/secondary questions, scope, inclusion/exclusion criteria, configured screening reason codes, required synthesis sections, and `screening.enforcement` (`required`, `optional`, or `disabled`). Bundled formal templates use `required`; `disabled` is an explicit escape hatch for a manually assembled project with no screening record. Formal runs hash the protocol. When it changes, `protocol_changes.jsonl` records the old/new hash, timestamp, changed top-level fields, and optional reason.
 
 `extraction_schema.yaml` supports string, number, integer, boolean, enum, list, and nested object fields. Each field may declare `required`, `default`, `missing_value`, `description`, `aliases`, `extraction_instruction`, `evidence_requirement`, and validation metadata. The engine interprets types and persistence only; domain meanings remain in this file.
 
@@ -35,7 +35,7 @@ searches:
     enabled: false
 ```
 
-Run all enabled searches or one path:
+Run all enabled searches or one path. A plan with neither enabled searches nor seed records fails instead of recording a zero-work success; `--allow-empty-search` is an explicit diagnostic override.
 
 ```bash
 review-assistant review search --project ./my-review
@@ -52,7 +52,7 @@ review-assistant review screen import --project ./my-review decisions.csv \
   --stage title_abstract --reviewer reviewer-name
 ```
 
-AI recommendations and confidence can be imported into their own columns; they never overwrite the human decision. Current CSV views, append-only history, and `prisma_counts.json` are regenerated deterministically.
+AI recommendations and confidence can be imported into their own columns; they never overwrite the human decision. Current CSV views, append-only history, and `prisma_counts.json` are regenerated deterministically. Review does not automatically perform human screening: an orchestrated run records `waiting_for_input` until decisions are imported.
 
 ## Full text and study extraction
 
@@ -71,7 +71,11 @@ For human-reviewed or offline extraction, import the generic JSON shape directly
 review-assistant review extract --project ./my-review --input extraction.json
 ```
 
-A publication can contain multiple studies; studies can contain multiple arms and outcomes. IDs are deterministic. Publication, study, and outcome JSONL exports remain separate and can be manually revised/re-imported.
+A publication can contain multiple studies; studies can contain multiple arms and outcomes. Extraction JSON accepts `source_record_id`, `source_file`, `publication`, and `studies`. Exact links are resolved in the order explicit record ID, DOI, PMID, normalized title, then explicit/manual file mapping. `record_publication_links.jsonl` and `study_record_links.jsonl` preserve the method, confidence, protocol hash, and timestamp. No fuzzy match is silently accepted.
+
+When screening is enforced, only a full-text `include` record with a study link is eligible downstream. Excluded, uncertain, duplicate, or unlinked studies cannot enter the matrix, contradiction analysis, memos, draft, or claim map. The `fulltext status` stage reports included records that still lack a bound PDF or structured extraction.
+
+Outcome validation is separate from study-field validation. `outcome_schema` validates every actual `studies[].outcomes[]` item, including nested evidence. `effect_direction` records what changed; `support_relation` records whether that change supports, contradicts, is neutral toward, mixes, or is unclear for the configured claim. A domain-specific `beneficial_direction` may derive the relation. Legacy `direction` migrates only to `effect_direction`; it never implies support.
 
 ## Matrix, contradictions, and synthesis
 
@@ -79,14 +83,16 @@ A publication can contain multiple studies; studies can contain multiple arms an
 review-assistant review matrix build --project ./my-review
 review-assistant review matrix build --project ./my-review --row-mode study_comparison
 review-assistant review evidence analyze --project ./my-review
-review-assistant review synthesize --project ./my-review
+review-assistant review synthesize --project ./my-review --model your-model
 ```
 
 Matrix columns and contradiction dimensions come from `extraction_schema.yaml`. Missing data is not treated as a no-change result. Moderator differences are reported only as candidate explanations.
 
-Review structure comes from protocol requirements plus configured evidence mappings. Required low-evidence sections remain present. All eligible studies are divided by configurable memo batch size; Review does not inherit Explore's per-section eight-finding cap. The section writer accepts either Explore findings or Review evidence memos through a mode-aware interface.
+Review structure comes from protocol requirements plus `synthesis_plan.yaml` evidence filters. Filters compose explicit study/publication IDs, outcome domains, effect directions, support relations, study-field equality/membership, configured population/intervention scope, and contradiction membership. Required low-evidence sections remain present with `evidence_insufficient`; they never fall back to all studies. Review does not inherit Explore's per-section eight-finding cap.
 
-Synthesis produces resolved plans, evidence memos, section drafts, `review_draft.md`, and `claim_map.json`. Claims link to supporting/contradicting studies and quote locations and receive stable IDs.
+Default Review synthesis calls the configured LLM with section specifications, protocol scope, outcomes, support relations, contradictions, missing data, qualifiers, and verified locations. It requires structured `section_text` plus claims; those claims are the primary source for `claim_map.json`. An injectable deterministic writer supports tests. `--offline-placeholder` is available only for scaffolding and visibly writes `PLACEHOLDER SYNTHESIS — NOT A REVIEW DRAFT`; strict audit rejects it.
+
+Claims retain supporting and contradicting study IDs, scope status, population evidence levels, causal strength, qualifiers, quote locations, and semantic flags. Unknown or excluded IDs are deliberately retained so audit can fail rather than hiding them. Revise the structured extraction or use an injected/human-reviewed structured writer result, then synthesize again; do not hand-edit only the prose and expect the claim map to follow.
 
 ## Audit and resumable runs
 
@@ -97,9 +103,11 @@ review-assistant review run --project ./my-review --from-stage matrix --to-stage
 review-assistant review run --project ./my-review --dry-run
 ```
 
-Audit checks unsupported/missing citations, quote failures, scope/adjacent leakage, configured population and causality flags, contradiction omission, missing protocol sections, protocol mismatch, duplicate counting, unreported-field assertions, dropped evidence, and unresolved citation keys. Normal mode emits outputs even with issues; strict mode returns exit code 2.
+Quote status is `passed`, `unverified`, or `failed`. PDF extraction verifies exact or normalized full text (Unicode, ligatures, whitespace, punctuation, and line-break hyphenation); manual JSON is `unverified` unless full text is checked or `manual_verified: true` is explicit. A non-empty quote alone never passes. Strict audit treats critical unverified evidence as an issue.
 
-Every orchestrated run stores metadata, stage status, input fingerprints, output fingerprints, and errors under `runs/<run-id>/`. Missing screening or extraction prerequisites produce an actionable error. `--resume` reuses the most recent incomplete run; `--force` reruns completed stages.
+Audit checks unsupported/missing citations, excluded/unlinked citations, quote failures and critical unverified quotes, scope/adjacent leakage, population and causality flags, contradiction omission, required sections, protocol mismatch, duplicate counting, schema errors, unreported-field assertions, dropped/ineligible evidence, placeholder use, empty search plans, incomplete screening, missing full text/study links, and unresolved citation keys. Strict exit codes are exact: passed audit `0`, audit issues `2`, execution error `1`.
+
+Every orchestrated run stores metadata, stage status, input fingerprints, output fingerprints, and errors under `runs/<run-id>/`. Stages are `search`, `screen`, `fulltext`, `extract`, `matrix`, `analyze`, `synthesize`, and `audit`. Human prerequisites produce `waiting_for_input`; execution faults produce `failed`. `--resume` reuses the most recent incomplete run; `--force` reruns completed stages.
 
 ## Explore to Review bootstrap
 
@@ -115,9 +123,10 @@ No network or paid API is needed for this path:
 
 1. Initialize a generic project and add required sections to `protocol.yaml`.
 2. Copy `examples/generic-fictional/extraction.json` into your working directory.
-3. Run `review extract --input`, `matrix build`, `evidence analyze`, `synthesize`, and `audit` as shown above.
-4. Inspect every JSONL/CSV/Markdown artifact and revise structured extraction if needed.
-5. Run `review run --from-stage matrix --resume` after a failed or interrupted stage.
+3. Import both screening stages, bind each extraction with `source_record_id`, and mark deliberately human-verified fixture quotes with `manual_verified: true`.
+4. Run `review extract --input`, `matrix build`, `evidence analyze`, `synthesize --offline-fixture-writer` (test/tutorial fixture only), and `audit --strict`.
+5. Inspect every JSONL/CSV/Markdown artifact and revise structured claims/extraction if needed.
+6. Run `review run --from-stage matrix --resume` after a failed, waiting, or interrupted stage.
 
 ## Custom templates and review types
 
@@ -127,4 +136,4 @@ The two example directories demonstrate a fully fictional domain-neutral input a
 
 ## Human review and current boundaries
 
-All AI screening recommendations, extracted fields, quotes, contradiction groups, drafts, and claim audits require human review. The implementation exports PRISMA count data but does not draw a PRISMA diagram. Citation chasing is represented in the search plan but built-in automatic forward/backward chasing is not performed; add named searches or seed records explicitly. Structured JSON is the interchange format for manual extraction corrections.
+All AI screening recommendations, record links, extracted fields, quotes, support relations, contradiction groups, drafts, and semantic claim flags require human review. Scope/population/causality analysis uses structured writer output and configured metadata; ambiguous cases remain `unclear`. The implementation exports PRISMA count data but does not draw a PRISMA diagram. Citation chasing is represented in the search plan but built-in automatic forward/backward chasing is not performed; add named searches or seed records explicitly. Structured JSON is the interchange format for manual extraction corrections.
