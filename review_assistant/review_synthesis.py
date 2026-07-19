@@ -39,13 +39,13 @@ def resolve_synthesis_plan(project: ReviewProject) -> dict[str, Any]:
             item.setdefault("section_id", f"S{len(section_specs) + 1:02d}")
             section_specs.append(item)
     all_studies = eligible_study_ids(project)
-    study_rows = {item["study_id"]: item for item in read_jsonl(project.root / "extraction" / "studies.jsonl") if item.get("study_id") in all_studies}
+    study_rows = {item["study_id"]: item for item in read_jsonl(project.root / "extraction" / "studies.jsonl") if item.get("study_id") in all_studies and item.get("status", "active") == "active"}
     outcomes = read_jsonl(project.root / "extraction" / "outcomes.jsonl")
     outcomes_by_study: dict[str, list[dict[str, Any]]] = defaultdict(list)
     directions: dict[str, list[str]] = defaultdict(list)
     relations: dict[str, list[str]] = defaultdict(list)
     for outcome in outcomes:
-        if outcome.get("study_id") not in study_rows:
+        if outcome.get("study_id") not in study_rows or outcome.get("status", "active") != "active":
             continue
         outcomes_by_study[outcome["study_id"]].append(outcome)
         directions[outcome["study_id"]].append(outcome.get("effect_direction", outcome.get("direction", "unclear")))
@@ -162,10 +162,11 @@ def _nested_value(value: Any, path: str, default: Any = "not_reported") -> Any:
 
 def build_evidence_memos(project: ReviewProject, plan: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     plan = plan or resolve_synthesis_plan(project)
-    studies = {item["study_id"]: item for item in read_jsonl(project.root / "extraction" / "studies.jsonl")}
+    studies = {item["study_id"]: item for item in read_jsonl(project.root / "extraction" / "studies.jsonl") if item.get("status", "active") == "active"}
     outcomes: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for item in read_jsonl(project.root / "extraction" / "outcomes.jsonl"):
-        outcomes[item["study_id"]].append(item)
+        if item.get("status", "active") == "active":
+            outcomes[item["study_id"]].append(item)
     batch_size = int(plan.get("settings", {}).get("evidence_batch_size", 25))
     if batch_size < 1:
         raise ValueError("evidence_batch_size must be positive")
@@ -517,7 +518,7 @@ def synthesize_review(
 def build_claim_map(project: ReviewProject, report: str, plan: dict[str, Any] | None = None, structured_sections: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     plan = plan or resolve_synthesis_plan(project)
     valid_studies = set(eligible_study_ids(project))
-    outcomes = read_jsonl(project.root / "extraction" / "outcomes.jsonl")
+    outcomes = [item for item in read_jsonl(project.root / "extraction" / "outcomes.jsonl") if item.get("status", "active") == "active"]
     outcomes_by_id = {
         str(outcome["outcome_id"]): outcome
         for outcome in outcomes
@@ -694,7 +695,7 @@ def _analyze_claim(
     required = list(raw.get("required_qualifiers", section_spec.get("required_qualifiers", [])))
     study_rows = {
         str(item.get("study_id")): item for item in read_jsonl(project.root / "extraction" / "studies.jsonl")
-        if item.get("study_id")
+        if item.get("study_id") and item.get("status", "active") == "active"
     }
     supporting_rows = [study_rows[sid] for sid in supporting if sid in study_rows]
     scope = str(raw.get("scope_status", raw.get("protocol_scope_status", "unclear")))

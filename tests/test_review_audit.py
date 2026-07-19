@@ -39,6 +39,14 @@ class ReviewAuditTests(unittest.TestCase):
         self.assertNotIn("missing_citation", summary["counts"])
         self.assertNotIn("contradiction_omission", summary["counts"])
 
+    def test_stale_claim_map_cannot_hide_unmapped_draft_sentence(self):
+        path = self.project.root / "synthesis" / "claim_map.json"
+        payload = json.loads(path.read_text())
+        payload["claims"] = []
+        write_json(path, payload)
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("claim_coverage_incomplete", summary["counts"])
+
     def test_unsupported_scope_duplicate_extrapolation_and_unresolved(self):
         path = self.project.root / "synthesis" / "claim_map.json"
         payload = json.loads(path.read_text())

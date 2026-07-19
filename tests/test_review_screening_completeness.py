@@ -5,6 +5,7 @@ from pathlib import Path
 from review_assistant.eligibility import resolve_eligibility
 from review_assistant.io_utils import append_jsonl
 from review_assistant.project import ReviewProject
+from review_assistant.review_audit import ReviewAuditor
 from review_assistant.screening import ScreeningStore, resolve_screening_completeness
 
 
@@ -44,6 +45,15 @@ class ScreeningCompletenessTests(unittest.TestCase):
         self.assertEqual(completeness["title_abstract_uncertain_ids"], [])
         self.assertEqual(completeness["illegal_state_ids"], [])
         self.assertNotIn("record_missing", resolve_eligibility(self.project).incomplete_record_ids)
+
+    def test_strict_audit_reports_search_record_absent_from_decision_history(self):
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("screening_required_but_incomplete", summary["counts"])
+        screening_issue = next(item for item in summary["issues"] if item["check"] == "screening_required_but_incomplete")
+        self.assertIn("record_missing", screening_issue["context"]["record_ids"])
+        ScreeningStore(self.project).decide("record_missing", "title_abstract", "exclude", "tester", reason_code="other")
+        summary = ReviewAuditor(self.project).run()
+        self.assertNotIn("screening_required_but_incomplete", summary["counts"])
 
 
 if __name__ == "__main__":

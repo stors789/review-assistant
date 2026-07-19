@@ -151,11 +151,11 @@ def resolve_eligibility(project: ReviewProject) -> EligibilityResult:
     studies = {
         str(item["study_id"]): item
         for item in read_jsonl(project.root / "extraction" / "studies.jsonl")
-        if item.get("study_id")
+        if item.get("study_id") and item.get("status", "active") == "active"
     }
     latest_links: dict[str, dict[str, Any]] = {}
     for link in read_jsonl(project.root / "extraction" / "study_record_links.jsonl"):
-        if link.get("study_id"):
+        if link.get("study_id") and link.get("status", "active") == "active":
             latest_links[str(link["study_id"])] = link
     decisions = latest_screening_decisions(project)
     fulltext = {rid: item for (rid, stage), item in decisions.items() if stage == "fulltext"}

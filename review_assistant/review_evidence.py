@@ -50,7 +50,7 @@ class EvidenceMatrixBuilder:
     def build(self, row_mode: str = "study") -> list[dict[str, Any]]:
         if row_mode not in {"study", "study_comparison"}:
             raise ValueError("row_mode must be study or study_comparison")
-        publications = {item["publication_id"]: item for item in read_jsonl(self.project.root / "extraction" / "publications.jsonl")}
+        publications = {item["publication_id"]: item for item in _latest(read_jsonl(self.project.root / "extraction" / "publications.jsonl"), "publication_id") if item.get("status", "active") == "active"}
         studies = _latest(read_jsonl(self.project.root / "extraction" / "studies.jsonl"), "study_id")
         eligible = set(resolve_eligible_studies(self.project))
         studies = [study for study in studies if study["study_id"] in eligible]
@@ -90,7 +90,7 @@ class EvidenceMatrixBuilder:
 
 def _latest(values: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
     merged = {item[key]: item for item in values}
-    return list(merged.values())
+    return [item for item in merged.values() if item.get("status", "active") == "active"]
 
 
 def _comparisons(arms: list[dict[str, Any]]) -> list[str]:

@@ -10,7 +10,7 @@ from typing import Any
 
 from .io_utils import atomic_write_text, load_yaml, read_jsonl, write_json
 from .project import ReviewProject
-from .review_synthesis import eligible_study_ids, resolve_synthesis_plan
+from .review_synthesis import eligible_study_ids, resolve_synthesis_plan, validate_structured_section_output
 from .eligibility import fulltext_requirement, latest_screening_decisions, resolve_eligibility, resolve_fulltext_status
 from .screening import resolve_screening_completeness
 from .studies import current_extraction_errors, evidence_location_id
@@ -62,6 +62,21 @@ def _side_evidence_refs(claim: dict[str, Any], side: str) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def _report_section_text(report: str, title: str) -> str:
+    lines = report.splitlines()
+    marker = f"## {title}"
+    try:
+        start = lines.index(marker) + 1
+    except ValueError:
+        return ""
+    collected: list[str] = []
+    for line in lines[start:]:
+        if line.startswith("## "):
+            break
+        collected.append(line)
+    return "\n".join(collected).strip()
+
+
 class ReviewAuditor:
     def __init__(self, project: ReviewProject):
         self.project = project
@@ -86,6 +101,27 @@ class ReviewAuditor:
 
         if claim_map.get("status") == "invalid":
             issues.append(_issue("claim_map_invalid", "Claim map was not generated because structured synthesis validation failed"))
+
+        report_path = self.project.root / "synthesis" / "review_draft.md"
+        report = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
+        claims_by_section: dict[str, list[dict[str, Any]]] = {}
+        for claim in claims:
+            section_id = str(claim.get("section_id", ""))
+            claims_by_section.setdefault(section_id, []).append({
+                "sentence": claim.get("sentence", ""),
+                "supporting_study_ids": claim.get("supporting_studies", []),
+                "contradicting_study_ids": claim.get("contradicting_studies", []),
+            })
+        for section_id, spec in section_specs.items():
+            section_text = _report_section_text(report, str(spec.get("title", "")))
+            if not section_text and spec.get("included_study_ids"):
+                issues.append(_issue("section_text_missing", "Evidence section text is missing from the draft", section_id=section_id))
+                continue
+            independent = validate_structured_section_output(
+                spec, {"section_text": section_text, "claims": claims_by_section.get(section_id, [])}, valid_studies,
+            )
+            if independent.get("coverage_status") != "passed":
+                issues.append(_issue("claim_coverage_incomplete", "Independent section/claim coverage validation failed", section_id=section_id, errors=independent.get("errors", []), unmapped_citations=independent.get("unmapped_citations", []), unmapped_sentences=independent.get("unmapped_sentences", [])))
 
         for claim in claims:
             cid = claim.get("claim_id")
