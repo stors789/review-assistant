@@ -81,6 +81,10 @@ class ExtractionSchema:
             raise ConfigurationError("fields must contain at least one extraction field")
         for name, spec in fields.items():
             cls._validate_field(str(name), _mapping(spec, f"fields.{name}"))
+        outcome_schema = data.get("outcome_schema")
+        if outcome_schema is not None:
+            for name, spec in _mapping(outcome_schema, "outcome_schema").items():
+                cls._validate_field(f"outcome_schema.{name}", _mapping(spec, f"outcome_schema.{name}"))
         return cls(data=data)
 
     @classmethod
@@ -116,15 +120,61 @@ class ExtractionSchema:
                     result[path] = spec.get("missing_value", "not_reported")
         return result
 
-    def validate_values(self, values: dict[str, Any]) -> list[dict[str, str]]:
-        errors: list[dict[str, str]] = []
+    @property
+    def outcome_schema(self) -> dict[str, Any]:
+        configured = self.data.get("outcome_schema")
+        if isinstance(configured, dict):
+            return configured
+        legacy = self.data.get("fields", {}).get("outcomes", {}).get("item_schema", {})
+        normalized = dict(legacy) if isinstance(legacy, dict) else {}
+        if "direction" in normalized and "effect_direction" not in normalized:
+            normalized["effect_direction"] = normalized.pop("direction")
+        if "evidence_quote" in normalized:
+            normalized.pop("evidence_quote")
+            normalized.setdefault("evidence", {"type": "list", "required": True, "item_schema": {
+                "quote": {"type": "string", "required": True},
+            }})
+        normalized.setdefault("domain", {"type": "string", "required": True})
+        normalized.setdefault("effect_direction", {"type": "enum", "values": ["increase", "decrease", "no_change", "mixed", "unclear"], "required": True})
+        normalized.setdefault("support_relation", {"type": "enum", "values": ["supports", "contradicts", "neutral", "mixed", "unclear"], "required": True})
+        normalized.setdefault("evidence", {"type": "list", "required": True, "item_schema": {
+            "quote": {"type": "string", "required": True},
+        }})
+        return normalized
+
+    def apply_study_missing_values(self, values: dict[str, Any]) -> dict[str, Any]:
+        result = dict(values)
         for path, spec in self.data["fields"].items():
-            value = values.get(path)
+            if path == "outcomes":
+                continue
+            if path not in result:
+                if "default" in spec:
+                    result[path] = spec["default"]
+                elif spec.get("required"):
+                    result[path] = spec.get("missing_value", "not_reported")
+        return result
+
+    def validate_study_values(self, values: dict[str, Any]) -> list[dict[str, str]]:
+        return self._validate_mapping(values, {k: v for k, v in self.data["fields"].items() if k != "outcomes"})
+
+    def validate_outcome(self, value: dict[str, Any]) -> list[dict[str, str]]:
+        return self._validate_mapping(value, self.outcome_schema)
+
+    def _validate_mapping(self, values: dict[str, Any], schema: dict[str, Any]) -> list[dict[str, str]]:
+        errors: list[dict[str, str]] = []
+        for path, spec in schema.items():
             missing = spec.get("missing_value", "not_reported")
+            if spec.get("required") and path not in values:
+                errors.append({"field": path, "error": "required"})
+                continue
+            value = values.get(path)
             if value is None or value == missing:
                 continue
             self._validate_value(path, value, spec, errors)
         return errors
+
+    def validate_values(self, values: dict[str, Any]) -> list[dict[str, str]]:
+        return self._validate_mapping(values, self.data["fields"])
 
     @classmethod
     def _validate_value(cls, path: str, value: Any, spec: dict[str, Any], errors: list[dict[str, str]]) -> None:

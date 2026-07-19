@@ -20,8 +20,8 @@ class ReviewAuditTests(unittest.TestCase):
         protocol["synthesis"]["required_sections"] = ["Evidence"]
         write_yaml(self.project.root / "protocol.yaml", protocol)
         StudyExtractionStore(self.project).ingest({"publication": {"title": "P"}, "studies": [
-            {"label": "a", "fields": {}, "outcomes": [{"domain": "x", "direction": "increase", "evidence": [{"quote": "q"}]}]},
-            {"label": "b", "fields": {}, "outcomes": [{"domain": "x", "direction": "no_change", "evidence": [{"quote": "q"}]}]},
+            {"label": "a", "fields": {}, "outcomes": [{"domain": "x", "effect_direction": "increase", "support_relation": "supports", "evidence": [{"quote": "q"}]}]},
+            {"label": "b", "fields": {}, "outcomes": [{"domain": "x", "effect_direction": "no_change", "support_relation": "contradicts", "evidence": [{"quote": "q"}]}]},
         ]})
         ContradictionAnalyzer(self.project).analyze()
         synthesize_review(self.project)

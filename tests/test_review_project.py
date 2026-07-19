@@ -37,6 +37,16 @@ class ReviewProjectTests(unittest.TestCase):
         errors = schema.validate_values({"level": -1, "outcomes": [{"direction": "sideways"}, {}]})
         self.assertEqual({item["error"] for item in errors}, {"below_minimum", "expected_enum", "required"})
 
+    def test_legacy_outcome_schema_migrates_direction_without_support_inference(self):
+        schema = ExtractionSchema.validate({"fields": {
+            "outcomes": {"type": "list", "item_schema": {
+                "domain": {"type": "string", "required": True},
+                "direction": {"type": "enum", "values": ["increase", "decrease"], "required": True},
+            }},
+        }})
+        self.assertIn("effect_direction", schema.outcome_schema)
+        self.assertIn("support_relation", schema.outcome_schema)
+
     def test_protocol_change_is_audited(self):
         with tempfile.TemporaryDirectory() as tmp:
             project = ReviewProject.initialize_review(Path(tmp) / "review")

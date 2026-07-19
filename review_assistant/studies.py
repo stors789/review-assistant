@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 import re
+import unicodedata
 
 from .io_utils import append_jsonl, read_jsonl, stable_id
 from .project import ReviewProject, utc_now
@@ -19,7 +20,10 @@ class EvidenceLocation:
     section: str = ""
     figure: str = ""
     table: str = ""
-    validation_status: str = "pending"
+    validation_status: str = "unverified"
+    validation_method: str = "none"
+    matched_excerpt: str = ""
+    confidence: float = 0.0
 
 
 @dataclass
@@ -27,7 +31,8 @@ class Outcome:
     outcome_id: str
     study_id: str
     domain: str
-    direction: str
+    effect_direction: str
+    support_relation: str = "unclear"
     value: Any = None
     evidence: list[EvidenceLocation] = field(default_factory=list)
 
@@ -96,10 +101,10 @@ def build_schema_evidence_pack(text: str, schema_data: dict[str, Any], **kwargs:
 class StudyExtractionStore:
     """Validate and persist model- or human-produced extraction records."""
 
-    def __init__(self, project: ReviewProject, quote_validator: Callable[[str], bool] | None = None):
+    def __init__(self, project: ReviewProject, quote_validator: Callable[[str], Any] | None = None):
         self.project = project
         self.schema = project.extraction_schema
-        self.quote_validator = quote_validator or (lambda quote: bool(quote.strip()))
+        self.quote_validator = quote_validator
 
     def ingest(self, record: dict[str, Any]) -> tuple[Publication, list[Study], list[Outcome]]:
         pub_data = record.get("publication")
@@ -114,12 +119,13 @@ class StudyExtractionStore:
         studies: list[Study] = []
         outcomes: list[Outcome] = []
         errors: list[dict[str, Any]] = []
+        output = self.project.root / "extraction"
         for index, raw in enumerate(study_data):
             label = str(raw.get("label") or f"study-{index + 1}")
             sid = str(raw.get("study_id") or study_id(pub_id, label, index))
-            fields = self.schema.apply_missing_values(dict(raw.get("fields", {})))
-            for validation_error in self.schema.validate_values(fields):
-                errors.append({"schema_version": "1.0", "study_id": sid, "error": "schema_validation_failed", **validation_error})
+            fields = self.schema.apply_study_missing_values(dict(raw.get("fields", {})))
+            for validation_error in self.schema.validate_study_values(fields):
+                errors.append({"schema_version": "1.0", "study_id": sid, "error": "schema_validation_failed", "field": validation_error.get("field"), "validation_error": validation_error.get("error")})
             evidence = self._evidence_map(raw.get("evidence", {}), sid, errors)
             arms = []
             for arm_index, arm in enumerate(raw.get("arms", [])):
@@ -129,12 +135,27 @@ class StudyExtractionStore:
             for outcome_index, raw_outcome in enumerate(raw.get("outcomes", [])):
                 oid = str(raw_outcome.get("outcome_id") or stable_id("outcome", sid, raw_outcome.get("domain"), outcome_index))
                 locations = self._locations(raw_outcome.get("evidence", []), sid, errors)
-                outcome = Outcome(oid, sid, str(raw_outcome.get("domain", "not_reported")), str(raw_outcome.get("direction", "unclear")), raw_outcome.get("value"), locations)
+                used_legacy_direction = "effect_direction" not in raw_outcome and "direction" in raw_outcome
+                effect_direction = str(raw_outcome.get("effect_direction", raw_outcome.get("direction", "unclear")))
+                support_relation = str(raw_outcome.get("support_relation") or self._configured_support_relation(str(raw_outcome.get("domain", "not_reported")), effect_direction))
+                normalized_outcome = {
+                    **raw_outcome, "domain": str(raw_outcome.get("domain", "not_reported")),
+                    "effect_direction": effect_direction, "support_relation": support_relation,
+                    "evidence": [asdict(location) for location in locations],
+                }
+                normalized_outcome.pop("direction", None)
+                for validation_error in self.schema.validate_outcome(normalized_outcome):
+                    errors.append({"schema_version": "1.0", "study_id": sid, "outcome_id": oid, "error": "outcome_schema_validation_failed", "field": validation_error.get("field"), "validation_error": validation_error.get("error"), "raw_record": raw_outcome})
+                if used_legacy_direction:
+                    append_jsonl(output / "extraction_warnings.jsonl", [{
+                        "schema_version": "1.0", "study_id": sid, "outcome_id": oid,
+                        "warning": "legacy_direction_migrated", "detail": "direction was migrated to effect_direction; support_relation was not inferred without configuration",
+                    }])
+                outcome = Outcome(oid, sid, normalized_outcome["domain"], effect_direction, support_relation, raw_outcome.get("value"), locations)
                 outcomes.append(outcome)
                 study_outcomes.append(oid)
             studies.append(Study(sid, pub_id, label, fields, arms, study_outcomes, evidence, bool(raw.get("manually_revised", False))))
             publication.study_ids.append(sid)
-        output = self.project.root / "extraction"
         append_jsonl(output / "publications.jsonl", [{"schema_version": "1.0", **asdict(publication)}])
         append_jsonl(output / "studies.jsonl", ({"schema_version": "1.0", **asdict(item)} for item in studies))
         append_jsonl(output / "outcomes.jsonl", ({"schema_version": "1.0", **asdict(item)} for item in outcomes))
@@ -144,6 +165,21 @@ class StudyExtractionStore:
         else:
             (output / "extraction_errors.jsonl").touch(exist_ok=True)
         return publication, studies, outcomes
+
+    def _configured_support_relation(self, domain: str, effect_direction: str) -> str:
+        spec = self.schema.data.get("outcome_domains", {}).get(domain, {})
+        beneficial = spec.get("beneficial_direction") if isinstance(spec, dict) else None
+        if beneficial not in {"increase", "decrease"}:
+            return "unclear"
+        if effect_direction == beneficial:
+            return "supports"
+        if effect_direction in {"increase", "decrease"}:
+            return "contradicts"
+        if effect_direction == "no_change":
+            return "neutral"
+        if effect_direction == "mixed":
+            return "mixed"
+        return "unclear"
 
     def _persist_links(self, record: dict[str, Any], publication: Publication, studies: list[Study]) -> None:
         source_record_id, method, confidence = match_extraction_record(self.project, record)
@@ -177,11 +213,26 @@ class StudyExtractionStore:
             if not isinstance(item, dict):
                 continue
             quote = str(item.get("quote", ""))
-            valid = self.quote_validator(quote)
-            status = "passed" if valid else "failed"
-            if not valid:
+            if item.get("manual_verified") is True:
+                validation = {"validation_status": "passed", "validation_method": "manual", "matched_excerpt": quote, "confidence": 1.0}
+            elif self.quote_validator is None:
+                validation = {"validation_status": "unverified", "validation_method": "none", "matched_excerpt": "", "confidence": 0.0}
+            else:
+                validated = self.quote_validator(quote)
+                validation = validated if isinstance(validated, dict) else {
+                    "validation_status": "passed" if validated else "failed",
+                    "validation_method": "manual", "matched_excerpt": quote if validated else "",
+                    "confidence": 1.0 if validated else 0.0,
+                }
+            status = validation["validation_status"]
+            if status == "failed":
                 errors.append({"schema_version": "1.0", "study_id": sid, "error": "quote_verification_failed", "quote": quote})
-            result.append(EvidenceLocation(quote, str(item.get("page", "")), str(item.get("section", "")), str(item.get("figure", "")), str(item.get("table", "")), status))
+            result.append(EvidenceLocation(
+                quote, str(item.get("page", "")), str(item.get("section", "")),
+                str(item.get("figure", "")), str(item.get("table", "")), status,
+                str(validation.get("validation_method", "none")), str(validation.get("matched_excerpt", "")),
+                float(validation.get("confidence", 0.0)),
+            ))
         return result
 
 
@@ -232,7 +283,7 @@ def extract_fulltext_documents(
             payload.setdefault("source_file", pdf_path.name)
             if source_record_id:
                 payload.setdefault("source_record_id", source_record_id)
-            quote_validator = lambda quote, text=full_text: _quote_in_text(quote, text)
+            quote_validator = lambda quote, text=full_text: validate_quote_in_text(quote, text)
             StudyExtractionStore(project, quote_validator=quote_validator).ingest(payload)
             completed += 1
         except Exception as exc:
@@ -296,10 +347,27 @@ def _llm_extract_record(pack: str, schema: dict[str, Any], pdf_path: Path, model
     return result
 
 
-def _quote_in_text(quote: str, text: str) -> bool:
+def validate_quote_in_text(quote: str, text: str, min_length: int = 12) -> dict[str, Any]:
+    quote = quote.strip()
+    if len(quote) < min_length:
+        return {"validation_status": "failed", "validation_method": "none", "matched_excerpt": "", "confidence": 0.0}
+    if quote in text:
+        return {"validation_status": "passed", "validation_method": "exact", "matched_excerpt": quote, "confidence": 1.0}
+
     def normalize(value: str) -> str:
-        value = value.replace("ﬁ", "fi").replace("ﬂ", "fl").lower()
-        return re.sub(r"\W+", "", value)
+        value = unicodedata.normalize("NFKC", value)
+        value = value.replace("ﬁ", "fi").replace("ﬂ", "fl")
+        value = re.sub(r"(?<=\w)-\s*\n\s*(?=\w)", "", value)
+        value = re.sub(r"[\s\W_]+", " ", value, flags=re.UNICODE)
+        return value.casefold().strip()
+
     normalized_quote = normalize(quote)
     normalized_text = normalize(text)
-    return bool(normalized_quote and (normalized_quote in normalized_text or normalize(quote[:120]) in normalized_text))
+    if len(normalized_quote) >= min_length and normalized_quote in normalized_text:
+        return {"validation_status": "passed", "validation_method": "normalized", "matched_excerpt": quote, "confidence": 0.9}
+    return {"validation_status": "failed", "validation_method": "normalized", "matched_excerpt": "", "confidence": 0.0}
+
+
+def _quote_in_text(quote: str, text: str) -> bool:
+    """Compatibility boolean wrapper."""
+    return validate_quote_in_text(quote, text)["validation_status"] == "passed"

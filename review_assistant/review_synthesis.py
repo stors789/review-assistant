@@ -39,19 +39,22 @@ def resolve_synthesis_plan(project: ReviewProject) -> dict[str, Any]:
     all_studies = eligible_study_ids(project)
     outcomes = read_jsonl(project.root / "extraction" / "outcomes.jsonl")
     directions: dict[str, list[str]] = defaultdict(list)
+    relations: dict[str, list[str]] = defaultdict(list)
     for outcome in outcomes:
-        directions[outcome["study_id"]].append(outcome.get("direction", "unclear"))
+        directions[outcome["study_id"]].append(outcome.get("effect_direction", outcome.get("direction", "unclear")))
+        relations[outcome["study_id"]].append(outcome.get("support_relation", "unclear"))
     resolved = []
     for spec in section_specs:
         included = spec.get("included_study_ids")
         study_ids = sorted(set(included) & set(all_studies)) if isinstance(included, list) else list(all_studies)
-        direction_sets = {name: sorted(sid for sid in study_ids if name in directions.get(sid, [])) for name in ("increase", "decrease", "no_change", "mixed", "unclear")}
+        relation_sets = {name: sorted(sid for sid in study_ids if name in relations.get(sid, [])) for name in ("supports", "contradicts", "neutral", "mixed", "unclear")}
         resolved.append({
             "section_id": spec["section_id"], "title": str(spec.get("title", "")),
             "required_questions": list(spec.get("required_questions", protocol.get("synthesis", {}).get("required_questions", []))),
-            "included_study_ids": study_ids, "positive_evidence": direction_sets["increase"],
-            "negative_evidence": direction_sets["decrease"], "no_change_evidence": direction_sets["no_change"],
-            "mixed_evidence": direction_sets["mixed"], "unclear_evidence": direction_sets["unclear"],
+            "included_study_ids": study_ids, "supporting_evidence": relation_sets["supports"],
+            "contradicting_evidence": relation_sets["contradicts"], "neutral_evidence": relation_sets["neutral"],
+            "mixed_evidence": relation_sets["mixed"], "unclear_evidence": relation_sets["unclear"],
+            "effect_directions": {name: sorted(sid for sid in study_ids if name in directions.get(sid, [])) for name in ("increase", "decrease", "no_change", "mixed", "unclear")},
             "required_qualifiers": list(spec.get("required_qualifiers", [])),
             "missing_evidence": [] if study_ids else ["evidence_insufficient"],
             "evidence_memo_dependencies": [],
@@ -103,7 +106,7 @@ def write_section(section_spec: dict[str, Any], evidence_bundle: list[dict[str, 
         return "Evidence is insufficient for this protocol-required section."
     ids = section_spec.get("included_study_ids", [])
     direction_labels = []
-    for field, label in (("positive_evidence", "supporting"), ("negative_evidence", "opposing"), ("no_change_evidence", "no-change"), ("mixed_evidence", "mixed")):
+    for field, label in (("supporting_evidence", "supporting"), ("contradicting_evidence", "opposing"), ("neutral_evidence", "neutral"), ("mixed_evidence", "mixed")):
         values = section_spec.get(field, [])
         if values:
             direction_labels.append(f"{label}: {', '.join(values)}")

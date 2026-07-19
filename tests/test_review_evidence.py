@@ -17,8 +17,8 @@ class EvidenceAnalysisTests(unittest.TestCase):
         protocol["screening"]["enforcement"] = "disabled"
         write_yaml(self.project.root / "protocol.yaml", protocol)
         StudyExtractionStore(self.project).ingest({"publication": {"title": "One"}, "studies": [
-            {"label": "a", "fields": {"study.design": "parallel", "population.summary": "sample-a"}, "arms": [{"role": "intervention", "label": "I"}, {"role": "control", "label": "C"}], "outcomes": [{"domain": "measure", "direction": "increase", "evidence": [{"quote": "q"}]}]},
-            {"label": "b", "fields": {"study.design": "crossover", "population.summary": "sample-b"}, "outcomes": [{"domain": "measure", "direction": "no_change", "evidence": []}]},
+            {"label": "a", "fields": {"study.design": "parallel", "population.summary": "sample-a"}, "arms": [{"role": "intervention", "label": "I"}, {"role": "control", "label": "C"}], "outcomes": [{"domain": "measure", "effect_direction": "increase", "support_relation": "supports", "evidence": [{"quote": "q"}]}]},
+            {"label": "b", "fields": {"study.design": "crossover", "population.summary": "sample-b"}, "outcomes": [{"domain": "measure", "effect_direction": "no_change", "support_relation": "contradicts", "evidence": []}]},
         ]})
 
     def tearDown(self):
@@ -36,10 +36,11 @@ class EvidenceAnalysisTests(unittest.TestCase):
         rows = EvidenceMatrixBuilder(self.project).build("study_comparison")
         self.assertIn("comparison_id", rows[0])
 
-    def test_no_change_is_not_missing_and_forms_contradiction(self):
+    def test_effect_direction_is_descriptive_and_support_relation_forms_contradiction(self):
         groups = ContradictionAnalyzer(self.project).analyze()
         group = next(item for item in groups if item["dimensions"]["outcome.domain"] == "measure")
         self.assertIn("no_change", group["directions"])
+        self.assertEqual(set(group["support_relations"]), {"supports", "contradicts"})
         self.assertTrue(group["has_directional_inconsistency"])
         self.assertEqual(group["interpretation"], "candidate_explanation_only")
 

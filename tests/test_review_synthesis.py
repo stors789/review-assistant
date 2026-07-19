@@ -20,7 +20,7 @@ class ReviewSynthesisTests(unittest.TestCase):
         write_yaml(self.project.root / "protocol.yaml", protocol)
         studies = []
         for index in range(10):
-            studies.append({"label": str(index), "fields": {"study.design": "configured", "population.summary": "sample"}, "outcomes": [{"domain": "configured-domain", "direction": "increase" if index % 2 == 0 else "decrease", "evidence": [{"quote": "reported"}]}]})
+            studies.append({"label": str(index), "fields": {"study.design": "configured", "population.summary": "sample"}, "outcomes": [{"domain": "configured-domain", "effect_direction": "increase" if index % 2 == 0 else "decrease", "support_relation": "supports" if index % 2 == 0 else "contradicts", "evidence": [{"quote": "reported"}]}]})
         StudyExtractionStore(self.project).ingest({"publication": {"title": "P"}, "studies": studies})
 
     def tearDown(self):
