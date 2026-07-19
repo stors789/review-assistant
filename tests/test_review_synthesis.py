@@ -18,6 +18,10 @@ class ReviewSynthesisTests(unittest.TestCase):
         protocol["review"]["title"] = "Configured review"
         protocol["synthesis"]["required_sections"] = ["Required evidence", "Required gap"]
         write_yaml(self.project.root / "protocol.yaml", protocol)
+        write_yaml(self.project.root / "synthesis_plan.yaml", {"sections": [
+            {"section_id": "S01", "title": "Required evidence", "evidence_filter": {"include_all_studies": True}},
+            {"section_id": "S02", "title": "Required gap", "evidence_filter": {"no_evidence": True}},
+        ], "settings": {"evidence_batch_size": 25}})
         studies = []
         for index in range(10):
             studies.append({"label": str(index), "fields": {"study.design": "configured", "population.summary": "sample"}, "outcomes": [{"domain": "configured-domain", "effect_direction": "increase" if index % 2 == 0 else "decrease", "support_relation": "supports" if index % 2 == 0 else "contradicts", "evidence": [{"quote": "reported"}]}]})
@@ -35,6 +39,26 @@ class ReviewSynthesisTests(unittest.TestCase):
         memos = build_evidence_memos(self.project, plan)
         ids = {sid for memo in memos if memo["section_id"] == "S01" for sid in memo["study_ids"]}
         self.assertEqual(len(ids), 10)
+
+    def test_unmatched_section_stays_empty_without_fallback(self):
+        plan = resolve_synthesis_plan(self.project)
+        gap = next(item for item in plan["sections"] if item["section_id"] == "S02")
+        self.assertEqual(gap["included_study_ids"], [])
+        self.assertEqual(gap["missing_evidence"], ["evidence_insufficient"])
+        self.assertEqual(len(gap["excluded_study_ids"]), 10)
+
+    def test_composable_outcome_and_study_field_filters(self):
+        write_yaml(self.project.root / "synthesis_plan.yaml", {"sections": [{
+            "section_id": "S01", "title": "Required evidence", "evidence_filter": {
+                "outcome_domains": ["configured-domain"],
+                "support_relations": ["supports"],
+                "study_field_equals": {"study.design": "configured"},
+            },
+        }]})
+        plan = resolve_synthesis_plan(self.project)
+        selected = plan["sections"][0]
+        self.assertEqual(len(selected["included_study_ids"]), 5)
+        self.assertTrue(all(reasons == ["included_by_rule"] for sid, reasons in selected["selection_explanations"].items() if sid in selected["included_study_ids"]))
 
     def test_supporting_and_opposing_evidence_appear_in_draft_and_claim_map(self):
         report = synthesize_review(self.project)

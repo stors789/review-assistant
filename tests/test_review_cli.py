@@ -46,6 +46,9 @@ class ReviewCliTests(unittest.TestCase):
         protocol["screening"]["enforcement"] = "disabled"
         protocol["synthesis"]["required_sections"] = ["Evidence"]
         write_yaml(self.root / "protocol.yaml", protocol)
+        write_yaml(self.root / "synthesis_plan.yaml", {"sections": [{
+            "section_id": "S01", "title": "Evidence", "evidence_filter": {"include_all_studies": True},
+        }]})
         extraction = Path(self.tmp.name) / "extraction.json"
         extraction.write_text(json.dumps({"publication": {"title": "P"}, "studies": [{"fields": {}, "outcomes": [{"domain": "x", "direction": "increase", "evidence": [{"quote": "q"}]}]}]}), encoding="utf-8")
         self.assertEqual(main(["review", "extract", "--project", str(self.root), "--input", str(extraction)]), 0)

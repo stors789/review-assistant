@@ -37,31 +37,125 @@ def resolve_synthesis_plan(project: ReviewProject) -> dict[str, Any]:
             item.setdefault("section_id", f"S{len(section_specs) + 1:02d}")
             section_specs.append(item)
     all_studies = eligible_study_ids(project)
+    study_rows = {item["study_id"]: item for item in read_jsonl(project.root / "extraction" / "studies.jsonl") if item.get("study_id") in all_studies}
     outcomes = read_jsonl(project.root / "extraction" / "outcomes.jsonl")
+    outcomes_by_study: dict[str, list[dict[str, Any]]] = defaultdict(list)
     directions: dict[str, list[str]] = defaultdict(list)
     relations: dict[str, list[str]] = defaultdict(list)
     for outcome in outcomes:
+        if outcome.get("study_id") not in study_rows:
+            continue
+        outcomes_by_study[outcome["study_id"]].append(outcome)
         directions[outcome["study_id"]].append(outcome.get("effect_direction", outcome.get("direction", "unclear")))
         relations[outcome["study_id"]].append(outcome.get("support_relation", "unclear"))
+    contradiction_ids: set[str] = set()
+    contradiction_path = project.root / "evidence" / "contradiction_groups.json"
+    if contradiction_path.exists():
+        payload = json.loads(contradiction_path.read_text(encoding="utf-8"))
+        contradiction_ids = {
+            str(sid) for group in payload.get("groups", []) if group.get("has_directional_inconsistency")
+            for sid in group.get("study_ids", [])
+        }
     resolved = []
     for spec in section_specs:
-        included = spec.get("included_study_ids")
-        study_ids = sorted(set(included) & set(all_studies)) if isinstance(included, list) else list(all_studies)
+        evidence_filter = dict(spec.get("evidence_filter", {}))
+        if "included_study_ids" in spec and "study_ids" not in evidence_filter:
+            evidence_filter["study_ids"] = list(spec.get("included_study_ids", []))
+        study_ids, explanations = _select_section_studies(
+            all_studies, study_rows, outcomes_by_study, evidence_filter, contradiction_ids,
+        )
         relation_sets = {name: sorted(sid for sid in study_ids if name in relations.get(sid, [])) for name in ("supports", "contradicts", "neutral", "mixed", "unclear")}
         resolved.append({
             "section_id": spec["section_id"], "title": str(spec.get("title", "")),
             "required_questions": list(spec.get("required_questions", protocol.get("synthesis", {}).get("required_questions", []))),
+            "selection_rule": evidence_filter,
             "included_study_ids": study_ids, "supporting_evidence": relation_sets["supports"],
             "contradicting_evidence": relation_sets["contradicts"], "neutral_evidence": relation_sets["neutral"],
             "mixed_evidence": relation_sets["mixed"], "unclear_evidence": relation_sets["unclear"],
             "effect_directions": {name: sorted(sid for sid in study_ids if name in directions.get(sid, [])) for name in ("increase", "decrease", "no_change", "mixed", "unclear")},
             "required_qualifiers": list(spec.get("required_qualifiers", [])),
+            "excluded_study_ids": sorted(set(all_studies) - set(study_ids)),
+            "selection_explanations": explanations,
             "missing_evidence": [] if study_ids else ["evidence_insufficient"],
             "evidence_memo_dependencies": [],
         })
     result = {"schema_version": "1.0", "protocol_hash": project.track_protocol(), "sections": resolved, "settings": configured.get("settings", {})}
     write_json(project.root / "synthesis" / "resolved_synthesis_plan.json", result)
     return result
+
+
+def _select_section_studies(
+    eligible_ids: list[str], studies: dict[str, dict[str, Any]],
+    outcomes: dict[str, list[dict[str, Any]]], rule: dict[str, Any], contradiction_ids: set[str],
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Apply domain-neutral, composable section evidence filters with explanations."""
+    explanations: dict[str, list[str]] = {}
+    if rule.get("no_evidence") is True or not rule:
+        reason = "no_evidence_requested" if rule.get("no_evidence") is True else "no_selection_rule"
+        return [], {sid: [reason] for sid in eligible_ids}
+    selected: list[str] = []
+    explicit = set(str(value) for value in rule.get("study_ids", []))
+    publications = set(str(value) for value in rule.get("publication_ids", []))
+    domains = set(str(value) for value in rule.get("outcome_domains", []))
+    effects = set(str(value) for value in rule.get("effect_directions", []))
+    relations = set(str(value) for value in rule.get("support_relations", []))
+    equals = rule.get("study_field_equals", {}) if isinstance(rule.get("study_field_equals", {}), dict) else {}
+    membership = rule.get("study_field_in", {}) if isinstance(rule.get("study_field_in", {}), dict) else {}
+    population_field = str(rule.get("population_field", "population.scope"))
+    intervention_field = str(rule.get("intervention_field", "intervention.scope"))
+    for sid in eligible_ids:
+        study = studies[sid]
+        study_outcomes = outcomes.get(sid, [])
+        reasons: list[str] = []
+        if explicit and sid not in explicit:
+            reasons.append("study_id_not_selected")
+        if publications and str(study.get("publication_id")) not in publications:
+            reasons.append("publication_id_not_selected")
+        if domains and not domains.intersection(str(item.get("domain")) for item in study_outcomes):
+            reasons.append("outcome_domain_not_matched")
+        if effects and not effects.intersection(str(item.get("effect_direction", item.get("direction", "unclear"))) for item in study_outcomes):
+            reasons.append("effect_direction_not_matched")
+        if relations and not relations.intersection(str(item.get("support_relation", "unclear")) for item in study_outcomes):
+            reasons.append("support_relation_not_matched")
+        context = {**study.get("fields", {}), **study}
+        for field_name, expected in equals.items():
+            if _nested_value(context, str(field_name)) != expected:
+                reasons.append(f"study_field_not_equal:{field_name}")
+        for field_name, allowed in membership.items():
+            allowed_values = allowed if isinstance(allowed, list) else [allowed]
+            actual = _nested_value(context, str(field_name))
+            actual_values = actual if isinstance(actual, list) else [actual]
+            if not set(actual_values).intersection(allowed_values):
+                reasons.append(f"study_field_not_in:{field_name}")
+        if "population_scope" in rule and _nested_value(context, population_field) != rule["population_scope"]:
+            reasons.append("population_scope_not_matched")
+        if "intervention_scope" in rule and _nested_value(context, intervention_field) != rule["intervention_scope"]:
+            reasons.append("intervention_scope_not_matched")
+        if rule.get("contradiction_only") is True and sid not in contradiction_ids:
+            reasons.append("not_in_contradiction_group")
+        if rule.get("include_all_studies") is not True and not any(
+            key in rule for key in (
+                "study_ids", "publication_ids", "outcome_domains", "effect_directions",
+                "support_relations", "study_field_equals", "study_field_in", "population_scope",
+                "intervention_scope", "contradiction_only",
+            )
+        ):
+            reasons.append("no_supported_filter")
+        explanations[sid] = reasons or ["included_by_rule"]
+        if not reasons:
+            selected.append(sid)
+    return sorted(selected), explanations
+
+
+def _nested_value(value: Any, path: str, default: Any = "not_reported") -> Any:
+    if isinstance(value, dict) and path in value:
+        return value[path]
+    current = value
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return default
+        current = current[part]
+    return current
 
 
 def build_evidence_memos(project: ReviewProject, plan: dict[str, Any] | None = None) -> list[dict[str, Any]]:
