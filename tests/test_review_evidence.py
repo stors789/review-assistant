@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from review_assistant.project import ReviewProject
+from review_assistant.io_utils import load_yaml, write_yaml
 from review_assistant.review_evidence import ContradictionAnalyzer, EvidenceMatrixBuilder
 from review_assistant.studies import StudyExtractionStore
 
@@ -12,6 +13,9 @@ class EvidenceAnalysisTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.project = ReviewProject.initialize_review(Path(self.tmp.name) / "project")
+        protocol = load_yaml(self.project.root / "protocol.yaml")
+        protocol["screening"]["enforcement"] = "disabled"
+        write_yaml(self.project.root / "protocol.yaml", protocol)
         StudyExtractionStore(self.project).ingest({"publication": {"title": "One"}, "studies": [
             {"label": "a", "fields": {"study.design": "parallel", "population.summary": "sample-a"}, "arms": [{"role": "intervention", "label": "I"}, {"role": "control", "label": "C"}], "outcomes": [{"domain": "measure", "direction": "increase", "evidence": [{"quote": "q"}]}]},
             {"label": "b", "fields": {"study.design": "crossover", "population.summary": "sample-b"}, "outcomes": [{"domain": "measure", "direction": "no_change", "evidence": []}]},

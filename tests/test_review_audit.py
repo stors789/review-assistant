@@ -16,6 +16,7 @@ class ReviewAuditTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.project = ReviewProject.initialize_review(Path(self.tmp.name) / "project")
         protocol = load_yaml(self.project.root / "protocol.yaml")
+        protocol["screening"]["enforcement"] = "disabled"
         protocol["synthesis"]["required_sections"] = ["Evidence"]
         write_yaml(self.project.root / "protocol.yaml", protocol)
         StudyExtractionStore(self.project).ingest({"publication": {"title": "P"}, "studies": [

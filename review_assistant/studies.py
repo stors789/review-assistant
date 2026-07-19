@@ -7,8 +7,9 @@ from pathlib import Path
 from typing import Any, Callable
 import re
 
-from .io_utils import append_jsonl, stable_id
-from .project import ReviewProject
+from .io_utils import append_jsonl, read_jsonl, stable_id
+from .project import ReviewProject, utc_now
+from .review_search import _doi, _title_key
 
 
 @dataclass
@@ -137,11 +138,32 @@ class StudyExtractionStore:
         append_jsonl(output / "publications.jsonl", [{"schema_version": "1.0", **asdict(publication)}])
         append_jsonl(output / "studies.jsonl", ({"schema_version": "1.0", **asdict(item)} for item in studies))
         append_jsonl(output / "outcomes.jsonl", ({"schema_version": "1.0", **asdict(item)} for item in outcomes))
+        self._persist_links(record, publication, studies)
         if errors:
             append_jsonl(output / "extraction_errors.jsonl", errors)
         else:
             (output / "extraction_errors.jsonl").touch(exist_ok=True)
         return publication, studies, outcomes
+
+    def _persist_links(self, record: dict[str, Any], publication: Publication, studies: list[Study]) -> None:
+        source_record_id, method, confidence = match_extraction_record(self.project, record)
+        common = {
+            "schema_version": "1.0", "record_id": source_record_id,
+            "publication_id": publication.publication_id,
+            "source_file": str(record.get("source_file", "")), "link_method": method,
+            "confidence": confidence, "timestamp": utc_now(),
+            "protocol_hash": self.project.track_protocol(),
+        }
+        append_jsonl(self.project.root / "extraction" / "record_publication_links.jsonl", [common])
+        append_jsonl(self.project.root / "extraction" / "study_record_links.jsonl", [
+            {**common, "study_id": study.study_id} for study in studies
+        ])
+        if not source_record_id:
+            append_jsonl(self.project.root / "extraction" / "extraction_errors.jsonl", [{
+                "schema_version": "1.0", "publication_id": publication.publication_id,
+                "study_ids": [study.study_id for study in studies], "source_file": common["source_file"],
+                "error": "record_link_unresolved",
+            }])
 
     def _evidence_map(self, raw: Any, sid: str, errors: list[dict[str, Any]]) -> dict[str, list[EvidenceLocation]]:
         if not isinstance(raw, dict):
@@ -182,6 +204,21 @@ def extract_fulltext_documents(
     failed = 0
     for pdf_path in pdf_paths:
         try:
+            source_record_id, _, _ = match_extraction_record(project, {
+                "source_file": pdf_path.name, "publication": {"title": pdf_path.stem},
+            })
+            from .eligibility import latest_screening_decisions, screening_enforcement
+            decisions = latest_screening_decisions(project)
+            fulltext = decisions.get((source_record_id, "fulltext")) if source_record_id else None
+            enforcement = screening_enforcement(project)
+            if fulltext and fulltext.get("decision") != "include":
+                append_jsonl(project.root / "extraction" / "extraction_errors.jsonl", [{
+                    "schema_version": "1.0", "file": str(pdf_path), "record_id": source_record_id,
+                    "error": "document_skipped_ineligible", "decision": fulltext.get("decision"),
+                }])
+                continue
+            if enforcement == "required" and (not source_record_id or not fulltext or fulltext.get("decision") != "include"):
+                raise ValueError("screening is required and the PDF is not bound to a full-text included record")
             full_text = extract_pdf_text(pdf_path)
             pack, coverage = build_schema_evidence_pack(full_text, store.schema.data)
             if extractor is None:
@@ -192,6 +229,9 @@ def extract_fulltext_documents(
                 raise ValueError("extractor must return a JSON object")
             payload.setdefault("publication", {})
             payload["publication"].setdefault("title", pdf_path.stem)
+            payload.setdefault("source_file", pdf_path.name)
+            if source_record_id:
+                payload.setdefault("source_record_id", source_record_id)
             quote_validator = lambda quote, text=full_text: _quote_in_text(quote, text)
             StudyExtractionStore(project, quote_validator=quote_validator).ingest(payload)
             completed += 1
@@ -202,6 +242,37 @@ def extract_fulltext_documents(
             }])
             failed += 1
     return {"completed": completed, "failed": failed}
+
+
+def match_extraction_record(project: ReviewProject, extraction: dict[str, Any]) -> tuple[str, str, str]:
+    """Match without fuzzy guessing, in explicit/DOI/PMID/title certainty order."""
+    records = read_jsonl(project.root / "search" / "deduplicated_records.jsonl")
+    by_id = {str(item.get("record_id")): item for item in records if item.get("record_id")}
+    explicit = str(extraction.get("source_record_id", "")).strip()
+    if explicit:
+        return explicit, "explicit_input", "exact"
+    publication = extraction.get("publication", {}) if isinstance(extraction.get("publication"), dict) else {}
+    source_file = Path(str(extraction.get("source_file", ""))).stem
+    target_doi = _doi(publication)
+    if target_doi:
+        matches = [rid for rid, item in by_id.items() if _doi(item) == target_doi]
+        if len(matches) == 1:
+            return matches[0], "doi", "exact"
+    target_pmid = str(publication.get("pmid", "")).strip()
+    if target_pmid:
+        matches = [rid for rid, item in by_id.items() if str(item.get("pmid", "")).strip() == target_pmid]
+        if len(matches) == 1:
+            return matches[0], "pmid", "exact"
+    target_title = _title_key(publication) or _title_key({"title": source_file})
+    if target_title:
+        matches = [rid for rid, item in by_id.items() if _title_key(item) == target_title]
+        if len(matches) == 1:
+            return matches[0], "title", "exact"
+    for rid, item in by_id.items():
+        configured_file = item.get("source_file") or item.get("full_text_file") or item.get("file")
+        if configured_file and Path(str(configured_file)).name == Path(str(extraction.get("source_file", ""))).name:
+            return rid, "manual", "manual"
+    return "", "unlinked", "probable"
 
 
 def _llm_extract_record(pack: str, schema: dict[str, Any], pdf_path: Path, model: str) -> dict[str, Any]:

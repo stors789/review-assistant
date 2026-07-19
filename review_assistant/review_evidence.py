@@ -11,6 +11,7 @@ from typing import Any
 
 from .io_utils import atomic_write_text, load_yaml, read_jsonl, write_json
 from .project import ReviewProject
+from .eligibility import resolve_eligible_studies
 
 DIRECTIONS = {"increase", "decrease", "positive", "negative", "support", "oppose", "no_change", "mixed", "unclear"}
 
@@ -50,6 +51,8 @@ class EvidenceMatrixBuilder:
             raise ValueError("row_mode must be study or study_comparison")
         publications = {item["publication_id"]: item for item in read_jsonl(self.project.root / "extraction" / "publications.jsonl")}
         studies = _latest(read_jsonl(self.project.root / "extraction" / "studies.jsonl"), "study_id")
+        eligible = set(resolve_eligible_studies(self.project))
+        studies = [study for study in studies if study["study_id"] in eligible]
         outcomes_by_study: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for outcome in _latest(read_jsonl(self.project.root / "extraction" / "outcomes.jsonl"), "outcome_id"):
             outcomes_by_study[outcome["study_id"]].append(outcome)
@@ -101,7 +104,10 @@ class ContradictionAnalyzer:
 
     def analyze(self) -> list[dict[str, Any]]:
         studies = {item["study_id"]: item for item in _latest(read_jsonl(self.project.root / "extraction" / "studies.jsonl"), "study_id")}
+        eligible = set(resolve_eligible_studies(self.project))
+        studies = {sid: study for sid, study in studies.items() if sid in eligible}
         outcomes = _latest(read_jsonl(self.project.root / "extraction" / "outcomes.jsonl"), "outcome_id")
+        outcomes = [outcome for outcome in outcomes if outcome.get("study_id") in eligible]
         dimensions = list(self.settings.get("claim_dimensions", ["outcome.domain"]))
         moderators = list(self.settings.get("moderator_candidates", []))
         groups: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)

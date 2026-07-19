@@ -10,18 +10,12 @@ from typing import Any, Callable, Iterable
 
 from .io_utils import atomic_write_text, load_yaml, read_jsonl, stable_id, write_json
 from .project import ReviewProject
+from .eligibility import resolve_eligible_studies
 
 
 def eligible_study_ids(project: ReviewProject) -> list[str]:
-    studies = {item["study_id"] for item in read_jsonl(project.root / "extraction" / "studies.jsonl")}
-    history = read_jsonl(project.root / "screening" / "decision_history.jsonl")
-    latest = {}
-    for item in history:
-        if item.get("stage") == "fulltext":
-            latest[item["record_id"]] = item
-    included = {record_id for record_id, item in latest.items() if item.get("decision") == "include"}
-    linked = {item.get("study_id") for item in read_jsonl(project.root / "extraction" / "study_record_links.jsonl") if item.get("record_id") in included}
-    return sorted(studies & linked) if latest and linked else sorted(studies)
+    """Backward-compatible public alias for the shared eligibility resolver."""
+    return resolve_eligible_studies(project)
 
 
 def resolve_synthesis_plan(project: ReviewProject) -> dict[str, Any]:

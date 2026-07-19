@@ -19,4 +19,5 @@ synthesis:
   required_sections: []
   required_questions: []
 screening:
+  enforcement: required
   reason_codes: [wrong_population, wrong_exposure_or_intervention, wrong_outcome, wrong_study_type, duplicate, no_full_text, insufficient_data, other]

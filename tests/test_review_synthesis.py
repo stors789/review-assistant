@@ -14,6 +14,7 @@ class ReviewSynthesisTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.project = ReviewProject.initialize_review(Path(self.tmp.name) / "project")
         protocol = load_yaml(self.project.root / "protocol.yaml")
+        protocol["screening"]["enforcement"] = "disabled"
         protocol["review"]["title"] = "Configured review"
         protocol["synthesis"]["required_sections"] = ["Required evidence", "Required gap"]
         write_yaml(self.project.root / "protocol.yaml", protocol)

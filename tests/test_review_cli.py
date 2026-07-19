@@ -43,6 +43,7 @@ class ReviewCliTests(unittest.TestCase):
 
     def test_extract_matrix_analyze_synthesize_and_strict_audit(self):
         protocol = load_yaml(self.root / "protocol.yaml")
+        protocol["screening"]["enforcement"] = "disabled"
         protocol["synthesis"]["required_sections"] = ["Evidence"]
         write_yaml(self.root / "protocol.yaml", protocol)
         extraction = Path(self.tmp.name) / "extraction.json"

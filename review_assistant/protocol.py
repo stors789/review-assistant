@@ -53,6 +53,9 @@ class Protocol:
         _list(eligibility.get("exclusion_criteria", []), "eligibility.exclusion_criteria")
         _list(synthesis.get("required_sections", []), "synthesis.required_sections")
         _list(synthesis.get("required_questions", []), "synthesis.required_questions")
+        enforcement = data.get("screening", {}).get("enforcement", "optional")
+        if enforcement not in {"required", "optional", "disabled"}:
+            raise ConfigurationError("screening.enforcement must be required, optional, or disabled")
         return cls(data=data)
 
     @property
