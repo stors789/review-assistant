@@ -56,7 +56,7 @@ class ReviewCliTests(unittest.TestCase):
         self.assertEqual(main(["review", "evidence", "analyze", "--project", str(self.root)]), 0)
         self.assertEqual(main(["review", "synthesize", "--project", str(self.root), "--offline-fixture-writer"]), 0)
         code = main(["review", "audit", "--project", str(self.root), "--strict"])
-        self.assertIn(code, {0, 2})
+        self.assertEqual(code, 2)
 
     def test_bootstrap_marks_candidates_unconfirmed(self):
         explore = Path(self.tmp.name) / "explore"

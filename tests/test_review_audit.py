@@ -67,6 +67,30 @@ class ReviewAuditTests(unittest.TestCase):
         summary = ReviewAuditor(self.project).run()
         self.assertIn("invalid_quote", summary["counts"])
 
+    def test_unverified_quote_supporting_claim_is_strict_issue(self):
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("unverified_critical_quote", summary["counts"])
+
+    def test_placeholder_and_empty_search_plan_are_strict_issues(self):
+        synthesize_review(self.project, offline_placeholder=True)
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("placeholder_synthesis_used", summary["counts"])
+        self.assertIn("empty_search_plan", summary["counts"])
+
+    def test_ineligible_study_citation_is_not_reported_as_merely_unresolved(self):
+        path = self.project.root / "synthesis" / "claim_map.json"
+        payload = json.loads(path.read_text())
+        known = payload["claims"][0]["supporting_studies"][0]
+        # Change the eligibility gate after synthesis so this real study becomes ineligible.
+        protocol = load_yaml(self.project.root / "protocol.yaml")
+        protocol["screening"]["enforcement"] = "required"
+        write_yaml(self.project.root / "protocol.yaml", protocol)
+        payload["claims"][0]["supporting_studies"] = [known]
+        write_json(path, payload)
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("citation_to_excluded_study", summary["counts"])
+        self.assertIn("included_ineligible_evidence", summary["counts"])
+
 
 if __name__ == "__main__":
     unittest.main()

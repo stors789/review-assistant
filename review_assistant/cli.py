@@ -170,7 +170,11 @@ def main(argv: list[str] | None = None) -> int:
         synthesize_review(project, injected, model=args.model, offline_placeholder=args.offline_placeholder)
         return 0
     if args.command == "audit":
-        summary = ReviewAuditor(project).run()
+        try:
+            summary = ReviewAuditor(project).run()
+        except Exception as exc:
+            print(f"Audit execution failed: {exc}", file=sys.stderr)
+            return 1
         return 2 if args.strict and summary["status"] == "failed" else 0
     if args.command == "run":
         return run_pipeline(project, args)
