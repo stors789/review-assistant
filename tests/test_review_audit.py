@@ -91,6 +91,45 @@ class ReviewAuditTests(unittest.TestCase):
         self.assertIn("citation_to_excluded_study", summary["counts"])
         self.assertIn("included_ineligible_evidence", summary["counts"])
 
+    def test_writer_population_and_causal_flags_fail_audit(self):
+        study_id = json.loads((self.project.root / "synthesis" / "claim_map.json").read_text())["claims"][0]["supporting_studies"][0]
+        synthesize_review(self.project, lambda **kwargs: {
+            "section_text": f"Overstated configured claim [{study_id}].",
+            "claims": [{
+                "sentence": f"Overstated configured claim [{study_id}].",
+                "supporting_study_ids": [study_id], "animal_to_human": True,
+                "population_overgeneralization": True, "causal_inflation": True,
+            }],
+        })
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("animal_to_human_extrapolation", summary["counts"])
+        self.assertIn("population_level_overgeneralization", summary["counts"])
+        self.assertIn("correlation_to_causation_inflation", summary["counts"])
+
+    def test_writer_unknown_study_reference_fails_audit(self):
+        synthesize_review(self.project, lambda **kwargs: {
+            "section_text": "Unknown evidence [study_unknown].",
+            "claims": [{"sentence": "Unknown evidence [study_unknown].", "supporting_study_ids": ["study_unknown"]}],
+        })
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("citation_key_resolution_failure", summary["counts"])
+
+    def test_protocol_change_after_synthesis_fails_audit(self):
+        protocol = load_yaml(self.project.root / "protocol.yaml")
+        protocol["review"]["primary_question"] = "Changed configured question"
+        write_yaml(self.project.root / "protocol.yaml", protocol)
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("protocol_hash_mismatch", summary["counts"])
+
+    def test_actual_outcome_schema_error_fails_audit(self):
+        StudyExtractionStore(self.project).ingest({
+            "publication": {"title": "Invalid outcome"}, "studies": [{"fields": {}, "outcomes": [{
+                "domain": "x", "effect_direction": "invalid", "support_relation": "supports", "evidence": [],
+            }]}],
+        })
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("schema_validation_error", summary["counts"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ from review_assistant.eligibility import resolve_eligibility, resolve_eligible_s
 from review_assistant.io_utils import append_jsonl, read_jsonl
 from review_assistant.project import ReviewProject
 from review_assistant.review_evidence import EvidenceMatrixBuilder
+from review_assistant.review_audit import ReviewAuditor
 from review_assistant.screening import ScreeningStore
 from review_assistant.studies import StudyExtractionStore
 
@@ -60,6 +61,9 @@ class ReviewEligibilityTests(unittest.TestCase):
         self.assertEqual(result.eligible_study_ids, set())
         self.assertIn("record_a", result.unlinked_included_record_ids)
         self.assertTrue(result.unlinked_study_ids)
+        summary = ReviewAuditor(self.project).run()
+        self.assertIn("included_record_lacking_study_link", summary["counts"])
+        self.assertIn("study_lacking_source_record", summary["counts"])
 
 
 if __name__ == "__main__":
