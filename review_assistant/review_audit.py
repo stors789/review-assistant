@@ -10,10 +10,23 @@ from typing import Any
 
 from .io_utils import atomic_write_text, load_yaml, read_jsonl, write_json
 from .project import ReviewProject
-from .review_synthesis import eligible_study_ids, resolve_synthesis_plan, validate_structured_section_output
+from .review_synthesis import (
+    detect_study_citation_tokens,
+    eligible_study_ids,
+    outcome_matches_section_filter,
+    resolve_synthesis_plan,
+    validate_structured_section_output,
+)
 from .eligibility import fulltext_requirement, latest_screening_decisions, resolve_eligibility, resolve_fulltext_status
 from .screening import resolve_screening_completeness
-from .studies import current_extraction_errors, evidence_location_id
+from .studies import (
+    current_evidence,
+    current_extraction_errors,
+    current_outcomes,
+    current_studies,
+    historical_evidence,
+    historical_outcomes,
+)
 
 
 AUDIT_OUTPUTS = {
@@ -31,23 +44,56 @@ def _issue(check: str, message: str, **context: Any) -> dict[str, Any]:
 
 
 def _extraction_evidence_index(project: ReviewProject) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
-    """Index current Outcome and Evidence records for independent audit resolution."""
+    """Index only current Outcome and Evidence records for audit resolution."""
     outcomes = {
         str(item.get("outcome_id")): item
-        for item in read_jsonl(project.root / "extraction" / "outcomes.jsonl")
+        for item in current_outcomes(project)
         if item.get("outcome_id")
     }
-    evidence: dict[str, dict[str, Any]] = {}
-    for outcome in outcomes.values():
-        study_id_value = str(outcome.get("study_id", ""))
-        outcome_id_value = str(outcome.get("outcome_id", ""))
-        for ordinal, raw_location in enumerate(outcome.get("evidence", [])):
-            location = dict(raw_location)
-            location["evidence_id"] = evidence_location_id(study_id_value, outcome_id_value, location, ordinal)
-            location["study_id"] = study_id_value
-            location["outcome_id"] = outcome_id_value
-            evidence[location["evidence_id"]] = location
+    evidence = {
+        str(location["evidence_id"]): dict(location)
+        for location in current_evidence(project)
+        if location.get("evidence_id")
+    }
     return outcomes, evidence
+
+
+def _historical_reference_index(project: ReviewProject) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Index historical references only for stale/superseded diagnostics."""
+    current_outcome_ids = {str(item.get("outcome_id")) for item in current_outcomes(project) if item.get("outcome_id")}
+    current_evidence_ids = {str(item.get("evidence_id")) for item in current_evidence(project) if item.get("evidence_id")}
+    historical_outcome_index: dict[str, dict[str, Any]] = {}
+    for item in historical_outcomes(project):
+        outcome_id = str(item.get("outcome_id", ""))
+        if outcome_id and outcome_id not in current_outcome_ids:
+            historical_outcome_index[outcome_id] = item
+    historical_evidence_index: dict[str, dict[str, Any]] = {}
+    for location in historical_evidence(project):
+        evidence_id = str(location.get("evidence_id", ""))
+        if evidence_id and evidence_id not in current_evidence_ids:
+            historical_evidence_index[evidence_id] = location
+    return historical_outcome_index, historical_evidence_index
+
+
+def _reference_lifecycle(project: ReviewProject, entity_type: str, value: dict[str, Any]) -> str:
+    """Classify a non-current reference without treating it as an unknown ID."""
+    status = str(value.get("status", value.get("outcome_status", "active")))
+    if status in {"superseded", "resolved", "inactive"}:
+        return "superseded"
+    state_path = project.root / "extraction" / "current_extraction_state.json"
+    if state_path.exists():
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            state = {}
+        collection = {"outcome": "outcomes", "evidence": "outcomes"}.get(entity_type, "")
+        entity_id = str(value.get("outcome_id" if entity_type == "outcome" else "evidence_id", ""))
+        entry = state.get(collection, {}).get(entity_id) if isinstance(state.get(collection), dict) else None
+        expected_run = str(entry.get("extraction_run_id", "")) if isinstance(entry, dict) else str(state.get("current_extraction_run_id", ""))
+        actual_run = str(value.get("extraction_run_id", ""))
+        if expected_run and actual_run != expected_run:
+            return "stale"
+    return "superseded"
 
 
 def _side_values(claim: dict[str, Any], side: str, suffix: str) -> list[str]:
@@ -87,11 +133,12 @@ class ReviewAuditor:
         claim_map = json.loads(claim_path.read_text(encoding="utf-8")) if claim_path.exists() else {"claims": []}
         claims = claim_map.get("claims", [])
         valid_studies = set(eligible_study_ids(self.project))
-        all_studies = {str(item.get("study_id")) for item in read_jsonl(self.project.root / "extraction" / "studies.jsonl") if item.get("study_id")}
+        all_studies = {str(item.get("study_id")) for item in current_studies(self.project) if item.get("study_id")}
         eligibility = resolve_eligibility(self.project)
         links = read_jsonl(self.project.root / "extraction" / "study_record_links.jsonl")
         linked_studies = {str(item.get("study_id")) for item in links if item.get("record_id") and item.get("study_id")}
         outcomes_by_id, evidence_by_id = _extraction_evidence_index(self.project)
+        historical_outcomes_by_id, historical_evidence_by_id = _historical_reference_index(self.project)
         try:
             resolved_plan = resolve_synthesis_plan(self.project)
         except Exception:
@@ -104,6 +151,21 @@ class ReviewAuditor:
 
         report_path = self.project.root / "synthesis" / "review_draft.md"
         report = report_path.read_text(encoding="utf-8") if report_path.exists() else ""
+        report_citation_patterns = [
+            str(pattern)
+            for spec in section_specs.values()
+            for pattern in (spec.get("citation_patterns", []) if isinstance(spec.get("citation_patterns", []), list) else [spec.get("citation_patterns")])
+            if str(pattern)
+        ]
+        report_citations = detect_study_citation_tokens(report, all_studies, report_citation_patterns)
+        if report_citations["unknown_citation_tokens"]:
+            issues.append(_issue(
+                "unknown_study_citation_in_text",
+                "Draft contains a study citation token that is absent from the current study set",
+                detected_citation_tokens=report_citations["detected_citation_tokens"],
+                unknown_citation_tokens=report_citations["unknown_citation_tokens"],
+                known_citation_tokens=report_citations["known_citation_tokens"],
+            ))
         claims_by_section: dict[str, list[dict[str, Any]]] = {}
         for claim in claims:
             section_id = str(claim.get("section_id", ""))
@@ -121,7 +183,7 @@ class ReviewAuditor:
                 spec, {"section_text": section_text, "claims": claims_by_section.get(section_id, [])}, valid_studies,
             )
             if independent.get("coverage_status") != "passed":
-                issues.append(_issue("claim_coverage_incomplete", "Independent section/claim coverage validation failed", section_id=section_id, errors=independent.get("errors", []), unmapped_citations=independent.get("unmapped_citations", []), unmapped_sentences=independent.get("unmapped_sentences", [])))
+                issues.append(_issue("claim_coverage_incomplete", "Independent section/claim coverage validation failed", section_id=section_id, errors=independent.get("errors", []), unmapped_citations=independent.get("unmapped_citations", []), unknown_citation_tokens=independent.get("unknown_citation_tokens", []), unmapped_sentences=independent.get("unmapped_sentences", [])))
 
         for claim in claims:
             cid = claim.get("claim_id")
@@ -153,6 +215,7 @@ class ReviewAuditor:
                 unresolved_evidence = claim.get(f"unresolved_{side}_evidence", [])
                 if not isinstance(unresolved_evidence, list):
                     unresolved_evidence = []
+                resolved_side_evidence: dict[str, dict[str, Any]] = {}
                 counts = Counter(side_studies)
                 duplicated = sorted(sid for sid, count in counts.items() if count > 1)
                 if duplicated:
@@ -177,22 +240,114 @@ class ReviewAuditor:
                 for outcome_id_value in side_outcomes:
                     outcome = outcomes_by_id.get(outcome_id_value)
                     if outcome is None:
+                        historical = historical_outcomes_by_id.get(outcome_id_value)
+                        if historical is not None:
+                            lifecycle = _reference_lifecycle(self.project, "outcome", historical)
+                            if lifecycle == "superseded":
+                                issues.append(_issue(
+                                    "superseded_outcome_reference",
+                                    "Claim references an Outcome from a superseded extraction",
+                                    claim_id=cid, outcome_id=outcome_id_value,
+                                    study_id=historical.get("study_id"), extraction_run_id=historical.get("extraction_run_id"),
+                                ))
+                            else:
+                                issues.append(_issue(
+                                    "stale_extraction_reference",
+                                    "Claim references an Outcome from a stale extraction run",
+                                    claim_id=cid, entity_type="outcome", entity_id=outcome_id_value,
+                                    extraction_run_id=historical.get("extraction_run_id"),
+                                ))
+                            continue
                         issues.append(_issue(f"{side}_outcome_unresolved", "Claim outcome cannot be resolved", claim_id=cid, outcome_ids=[outcome_id_value]))
                         continue
                     outcome_study = str(outcome.get("study_id", ""))
                     if outcome_study not in side_studies:
                         issues.append(_issue(f"{side}_outcome_wrong_study", "Claim outcome does not belong to a study cited on the same side", claim_id=cid, outcome_id=outcome_id_value, study_id=outcome_study))
+                    section_filter = spec.get("selection_rule", spec.get("evidence_filter", {}))
+                    filter_match = outcome_matches_section_filter(outcome, section_filter)
+                    for reason in filter_match["reasons"]:
+                        check = {
+                            "outcome_domain_not_matched": "outcome_domain_outside_section",
+                            "effect_direction_not_matched": "effect_direction_outside_section",
+                            "support_relation_not_matched": "support_relation_outside_section",
+                        }[reason]
+                        issues.append(_issue(
+                            f"{side}_outcome_outside_section_filter",
+                            "Claim Outcome does not satisfy this section's outcome evidence filter",
+                            claim_id=cid, section_id=claim.get("section_id"), outcome_id=outcome_id_value,
+                            study_id=outcome_study, filter=section_filter, violation=reason,
+                        ))
+                        issues.append(_issue(
+                            check,
+                            "Claim Outcome violates a configured section-level outcome filter",
+                            claim_id=cid, section_id=claim.get("section_id"), outcome_id=outcome_id_value,
+                            study_id=outcome_study, filter=section_filter,
+                        ))
+                    relation = str(outcome.get("support_relation", "unclear"))
+                    if side == "supporting" and relation == "contradicts":
+                        issues.append(_issue("supporting_support_relation_mismatch", "Supporting Outcome is structurally marked as contradicting", claim_id=cid, outcome_id=outcome_id_value))
+                        issues.append(_issue("support_relation_mismatch", "Claim side disagrees with outcome support relation", claim_id=cid, outcome_id=outcome_id_value, side=side))
+                    elif side == "contradicting" and relation == "supports":
+                        issues.append(_issue("contradicting_support_relation_mismatch", "Contradicting Outcome is structurally marked as supporting", claim_id=cid, outcome_id=outcome_id_value))
+                        issues.append(_issue("support_relation_mismatch", "Claim side disagrees with outcome support relation", claim_id=cid, outcome_id=outcome_id_value, side=side))
+                    elif relation in {"unclear", "mixed", "neutral"} and not relation_explanation:
+                        issues.append(_issue(f"{side}_support_relation_unclear", "Claim must explain that an unclear, mixed, or neutral relation is not definite evidence", claim_id=cid, outcome_id=outcome_id_value, support_relation=relation))
+
+                for reference in unresolved_evidence:
+                    evidence_id_value = str(reference.get("evidence_id", "")) if isinstance(reference, dict) else str(reference)
+                    historical = historical_evidence_by_id.get(evidence_id_value)
+                    if historical is None:
+                        issues.append(_issue(
+                            f"{side}_evidence_unresolved",
+                            "Claim evidence location cannot be resolved",
+                            claim_id=cid, evidence_ids=[evidence_id_value],
+                        ))
+                        continue
+                    lifecycle = _reference_lifecycle(self.project, "evidence", historical)
+                    if lifecycle == "superseded":
+                        issues.append(_issue(
+                            "superseded_evidence_reference",
+                            "Claim references Evidence from a superseded Outcome or extraction",
+                            claim_id=cid, evidence_id=evidence_id_value,
+                            outcome_id=historical.get("outcome_id"), study_id=historical.get("study_id"),
+                            extraction_run_id=historical.get("extraction_run_id"),
+                        ))
+                    else:
+                        issues.append(_issue(
+                            "stale_extraction_reference",
+                            "Claim references Evidence from a stale extraction run",
+                            claim_id=cid, entity_type="evidence", entity_id=evidence_id_value,
+                            outcome_id=historical.get("outcome_id"), extraction_run_id=historical.get("extraction_run_id"),
+                        ))
 
                 if side_studies and not side_evidence and not unresolved_evidence:
                     issues.append(_issue(f"{side}_evidence_unresolved", "Every critical citation must be linked to a specific evidence location", claim_id=cid, study_ids=side_studies))
-                resolved_side_evidence = False
                 for reference in side_evidence:
                     evidence_id_value = str(reference.get("evidence_id", "")) if isinstance(reference, dict) else str(reference)
                     evidence = evidence_by_id.get(evidence_id_value)
                     if evidence is None:
+                        historical = historical_evidence_by_id.get(evidence_id_value)
+                        if historical is not None:
+                            lifecycle = _reference_lifecycle(self.project, "evidence", historical)
+                            if lifecycle == "superseded":
+                                issues.append(_issue(
+                                    "superseded_evidence_reference",
+                                    "Claim references Evidence from a superseded Outcome or extraction",
+                                    claim_id=cid, evidence_id=evidence_id_value,
+                                    outcome_id=historical.get("outcome_id"), study_id=historical.get("study_id"),
+                                    extraction_run_id=historical.get("extraction_run_id"),
+                                ))
+                            else:
+                                issues.append(_issue(
+                                    "stale_extraction_reference",
+                                    "Claim references Evidence from a stale extraction run",
+                                    claim_id=cid, entity_type="evidence", entity_id=evidence_id_value,
+                                    outcome_id=historical.get("outcome_id"), extraction_run_id=historical.get("extraction_run_id"),
+                                ))
+                            continue
                         issues.append(_issue(f"{side}_evidence_unresolved", "Claim evidence location cannot be resolved", claim_id=cid, evidence_ids=[evidence_id_value]))
                         continue
-                    resolved_side_evidence = True
+                    resolved_side_evidence[evidence_id_value] = evidence
                     evidence_study = str(evidence.get("study_id", ""))
                     evidence_outcome = str(evidence.get("outcome_id", ""))
                     if evidence_study not in side_studies:
@@ -202,20 +357,64 @@ class ReviewAuditor:
                     status = str(evidence.get("validation_status", "unverified"))
                     if status == "failed":
                         issues.append(_issue("invalid_quote", "A quote supporting this claim failed source verification", claim_id=cid, evidence_id=evidence_id_value))
-                    elif status != "passed":
+                    elif status != "passed" and evidence.get("manual_verified") is not True:
                         issues.append(_issue("unverified_critical_quote", "Claim depends on evidence that is not passed or manual-verified", claim_id=cid, evidence_id=evidence_id_value, validation_status=status))
-                    outcome = outcomes_by_id.get(evidence_outcome)
-                    relation = str(outcome.get("support_relation", "unclear")) if outcome else "unclear"
-                    if side == "supporting" and relation == "contradicts":
-                        issues.append(_issue("supporting_support_relation_mismatch", "Supporting evidence is structurally marked as contradicting", claim_id=cid, outcome_id=evidence_outcome))
-                        issues.append(_issue("support_relation_mismatch", "Claim side disagrees with outcome support relation", claim_id=cid, outcome_id=evidence_outcome, side=side))
-                    elif side == "contradicting" and relation == "supports":
-                        issues.append(_issue("contradicting_support_relation_mismatch", "Contradicting evidence is structurally marked as supporting", claim_id=cid, outcome_id=evidence_outcome))
-                        issues.append(_issue("support_relation_mismatch", "Claim side disagrees with outcome support relation", claim_id=cid, outcome_id=evidence_outcome, side=side))
-                    elif relation in {"unclear", "mixed", "neutral"} and not relation_explanation:
-                        issues.append(_issue(f"{side}_support_relation_unclear", "Claim must explain that an unclear, mixed, or neutral relation is not definite evidence", claim_id=cid, outcome_id=evidence_outcome, support_relation=relation))
                 if side_studies and side_outcomes and not resolved_side_evidence and not unresolved_evidence:
                     issues.append(_issue(f"{side}_evidence_unresolved", "Specific outcome has no resolvable evidence location", claim_id=cid, outcome_ids=side_outcomes))
+                for study_id_value in sorted(set(side_studies)):
+                    study_outcome_ids = [
+                        outcome_id_value for outcome_id_value in side_outcomes
+                        if outcome_id_value in outcomes_by_id
+                        and str(outcomes_by_id[outcome_id_value].get("study_id", "")) == study_id_value
+                    ]
+                    study_evidence_ids = [
+                        evidence_id_value for evidence_id_value, evidence in resolved_side_evidence.items()
+                        if str(evidence.get("study_id", "")) == study_id_value
+                        and str(evidence.get("outcome_id", "")) in study_outcome_ids
+                    ]
+                    context = {
+                        "claim_id": cid, "study_id": study_id_value,
+                        "outcome_ids": study_outcome_ids, "evidence_ids": study_evidence_ids,
+                    }
+                    if not study_outcome_ids:
+                        issues.append(_issue(
+                            f"{side}_study_without_outcome",
+                            "Every cited study must have its own cited Outcome",
+                            **context,
+                        ))
+                    if not study_evidence_ids:
+                        issues.append(_issue(
+                            f"{side}_study_without_evidence",
+                            "Every cited study must have Evidence belonging to its cited Outcome",
+                            **context,
+                        ))
+                incomplete_outcomes: list[str] = []
+                for outcome_id_value in side_outcomes:
+                    outcome = outcomes_by_id.get(outcome_id_value)
+                    if outcome is None:
+                        continue
+                    evidence_ids = [
+                        evidence_id_value for evidence_id_value, evidence in resolved_side_evidence.items()
+                        if str(evidence.get("outcome_id", "")) == outcome_id_value
+                    ]
+                    if evidence_ids:
+                        continue
+                    incomplete_outcomes.append(outcome_id_value)
+                    outcome_context = {
+                        "claim_id": cid, "outcome_id": outcome_id_value,
+                        "study_id": outcome.get("study_id"), "evidence_ids": [],
+                    }
+                    issues.append(_issue(
+                        f"{side}_outcome_without_evidence",
+                        "Every cited Outcome must have its own cited Evidence",
+                        **outcome_context,
+                    ))
+                if incomplete_outcomes:
+                    issues.append(_issue(
+                        "outcome_evidence_coverage_incomplete",
+                        "At least one cited Outcome lacks Evidence belonging to that Outcome",
+                        claim_id=cid, side=side, outcome_ids=incomplete_outcomes,
+                    ))
 
             if claim.get("unreported_field_claims"):
                 issues.append(_issue("unreported_field_hallucination", "Claim asserts fields recorded as unreported", claim_id=cid, fields=claim["unreported_field_claims"]))
@@ -332,7 +531,11 @@ class ReviewAuditor:
                 categories["invalid_quotes"].append(item)
             elif check == "contradiction_omission":
                 categories["contradiction_omissions"].append(item)
-            elif check in {"citation_key_resolution_failure", "duplicate_study_counting", "citation_to_excluded_study", "citation_to_unlinked_study", "included_ineligible_evidence"}:
+            elif check in {
+                "citation_key_resolution_failure", "duplicate_study_counting", "citation_to_excluded_study",
+                "citation_to_unlinked_study", "included_ineligible_evidence", "unknown_study_citation_in_text",
+                "superseded_outcome_reference", "superseded_evidence_reference", "stale_extraction_reference",
+            }:
                 categories["citation_failures"].append(item)
             else:
                 categories["protocol_compliance"].append(item)

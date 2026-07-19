@@ -12,12 +12,56 @@ from .io_utils import atomic_write_text, load_yaml, read_jsonl, stable_id, write
 from .project import ReviewProject
 from .eligibility import resolve_eligible_studies
 from .config import DEFAULT_PRO_MODEL, get_model
-from .studies import evidence_location_id
+from .studies import current_evidence, current_outcomes, current_studies
 
 
 def eligible_study_ids(project: ReviewProject) -> list[str]:
     """Backward-compatible public alias for the shared eligibility resolver."""
     return resolve_eligible_studies(project)
+
+
+OUTCOME_FILTER_FIELDS = (
+    ("outcome_domains", "domain", "outcome_domain_not_matched"),
+    ("effect_directions", "effect_direction", "effect_direction_not_matched"),
+    ("support_relations", "support_relation", "support_relation_not_matched"),
+)
+
+
+def _allowed_filter_values(rule: dict[str, Any], key: str) -> set[str]:
+    value = rule.get(key, [])
+    if not isinstance(value, list):
+        value = [value]
+    return {str(item) for item in value if str(item)}
+
+
+def outcome_matches_section_filter(outcome: dict[str, Any], section_filter: dict[str, Any] | None) -> dict[str, Any]:
+    """Apply the shared outcome-level section filter to one Outcome."""
+    rule = section_filter if isinstance(section_filter, dict) else {}
+    reasons: list[str] = []
+    for rule_key, outcome_key, reason in OUTCOME_FILTER_FIELDS:
+        allowed = _allowed_filter_values(rule, rule_key)
+        if not allowed:
+            continue
+        actual_key = outcome_key
+        actual = outcome.get(actual_key)
+        if actual is None and outcome_key == "effect_direction":
+            actual = outcome.get("direction", "unclear")
+        if actual is None and outcome_key == "support_relation":
+            actual = "unclear"
+        if str(actual) not in allowed:
+            reasons.append(reason)
+    return {"matches": not reasons, "reasons": reasons}
+
+
+def _section_citation_patterns(section_spec: dict[str, Any] | None) -> list[str]:
+    if not isinstance(section_spec, dict):
+        return []
+    value = section_spec.get("citation_patterns", section_spec.get("citation_pattern", []))
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    return [str(pattern) for pattern in value if str(pattern)]
 
 
 def resolve_synthesis_plan(project: ReviewProject) -> dict[str, Any]:
@@ -31,21 +75,27 @@ def resolve_synthesis_plan(project: ReviewProject) -> dict[str, Any]:
         item = {"title": raw} if isinstance(raw, str) else dict(raw)
         item = {**by_title.get(str(item.get("title", "")), {}), **item}
         item.setdefault("section_id", f"S{index + 1:02d}")
+        configured_patterns = configured.get("settings", {}).get("citation_patterns", [])
+        if "citation_patterns" not in item and "citation_pattern" not in item and configured_patterns:
+            item["citation_patterns"] = configured_patterns
         section_specs.append(item)
     known_titles = {item.get("title") for item in section_specs}
     for raw in configured_sections:
         if raw.get("title") not in known_titles:
             item = dict(raw)
             item.setdefault("section_id", f"S{len(section_specs) + 1:02d}")
+            configured_patterns = configured.get("settings", {}).get("citation_patterns", [])
+            if "citation_patterns" not in item and "citation_pattern" not in item and configured_patterns:
+                item["citation_patterns"] = configured_patterns
             section_specs.append(item)
     all_studies = eligible_study_ids(project)
-    study_rows = {item["study_id"]: item for item in read_jsonl(project.root / "extraction" / "studies.jsonl") if item.get("study_id") in all_studies and item.get("status", "active") == "active"}
-    outcomes = read_jsonl(project.root / "extraction" / "outcomes.jsonl")
+    study_rows = {item["study_id"]: item for item in current_studies(project) if item.get("study_id") in all_studies}
+    outcomes = current_outcomes(project)
     outcomes_by_study: dict[str, list[dict[str, Any]]] = defaultdict(list)
     directions: dict[str, list[str]] = defaultdict(list)
     relations: dict[str, list[str]] = defaultdict(list)
     for outcome in outcomes:
-        if outcome.get("study_id") not in study_rows or outcome.get("status", "active") != "active":
+        if outcome.get("study_id") not in study_rows:
             continue
         outcomes_by_study[outcome["study_id"]].append(outcome)
         directions[outcome["study_id"]].append(outcome.get("effect_direction", outcome.get("direction", "unclear")))
@@ -76,6 +126,7 @@ def resolve_synthesis_plan(project: ReviewProject) -> dict[str, Any]:
             "mixed_evidence": relation_sets["mixed"], "unclear_evidence": relation_sets["unclear"],
             "effect_directions": {name: sorted(sid for sid in study_ids if name in directions.get(sid, [])) for name in ("increase", "decrease", "no_change", "mixed", "unclear")},
             "required_qualifiers": list(spec.get("required_qualifiers", [])),
+            "citation_patterns": _section_citation_patterns(spec),
             "excluded_study_ids": sorted(set(all_studies) - set(study_ids)),
             "selection_explanations": explanations,
             "missing_evidence": [] if study_ids else ["evidence_insufficient"],
@@ -98,9 +149,6 @@ def _select_section_studies(
     selected: list[str] = []
     explicit = set(str(value) for value in rule.get("study_ids", []))
     publications = set(str(value) for value in rule.get("publication_ids", []))
-    domains = set(str(value) for value in rule.get("outcome_domains", []))
-    effects = set(str(value) for value in rule.get("effect_directions", []))
-    relations = set(str(value) for value in rule.get("support_relations", []))
     equals = rule.get("study_field_equals", {}) if isinstance(rule.get("study_field_equals", {}), dict) else {}
     membership = rule.get("study_field_in", {}) if isinstance(rule.get("study_field_in", {}), dict) else {}
     population_field = str(rule.get("population_field", "population.scope"))
@@ -113,12 +161,14 @@ def _select_section_studies(
             reasons.append("study_id_not_selected")
         if publications and str(study.get("publication_id")) not in publications:
             reasons.append("publication_id_not_selected")
-        if domains and not domains.intersection(str(item.get("domain")) for item in study_outcomes):
-            reasons.append("outcome_domain_not_matched")
-        if effects and not effects.intersection(str(item.get("effect_direction", item.get("direction", "unclear"))) for item in study_outcomes):
-            reasons.append("effect_direction_not_matched")
-        if relations and not relations.intersection(str(item.get("support_relation", "unclear")) for item in study_outcomes):
-            reasons.append("support_relation_not_matched")
+        outcome_filter_configured = any(_allowed_filter_values(rule, key) for key, _, _ in OUTCOME_FILTER_FIELDS)
+        if outcome_filter_configured and not any(
+            outcome_matches_section_filter(outcome, rule)["matches"] for outcome in study_outcomes
+        ):
+            reasons.extend(
+                reason for key, _, reason in OUTCOME_FILTER_FIELDS
+                if _allowed_filter_values(rule, key)
+            )
         context = {**study.get("fields", {}), **study}
         for field_name, expected in equals.items():
             if _nested_value(context, str(field_name)) != expected:
@@ -162,11 +212,10 @@ def _nested_value(value: Any, path: str, default: Any = "not_reported") -> Any:
 
 def build_evidence_memos(project: ReviewProject, plan: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     plan = plan or resolve_synthesis_plan(project)
-    studies = {item["study_id"]: item for item in read_jsonl(project.root / "extraction" / "studies.jsonl") if item.get("status", "active") == "active"}
+    studies = {item["study_id"]: item for item in current_studies(project) if item.get("study_id")}
     outcomes: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for item in read_jsonl(project.root / "extraction" / "outcomes.jsonl"):
-        if item.get("status", "active") == "active":
-            outcomes[item["study_id"]].append(item)
+    for item in current_outcomes(project):
+        outcomes[item["study_id"]].append(item)
     batch_size = int(plan.get("settings", {}).get("evidence_batch_size", 25))
     if batch_size < 1:
         raise ValueError("evidence_batch_size must be positive")
@@ -292,13 +341,35 @@ def _claim_study_ids(claim: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(values))
 
 
+DEFAULT_STUDY_CITATION_PATTERN = r"\b(?:study|pub|record)_[A-Za-z0-9_-]+\b"
+
+
+def detect_study_citation_tokens(
+    text: str, known_ids: Iterable[str], citation_patterns: Iterable[str] | None = None,
+) -> dict[str, list[str]]:
+    """Detect known and unknown study-like citation tokens in review prose."""
+    known = {str(value) for value in known_ids if str(value)}
+    detected: set[str] = set()
+    patterns = [DEFAULT_STUDY_CITATION_PATTERN, *[str(value) for value in (citation_patterns or []) if str(value)]]
+    for pattern in patterns:
+        try:
+            detected.update(match.group(0) for match in re.finditer(pattern, str(text)))
+        except re.error:
+            continue
+    for study_id in sorted(known, key=len, reverse=True):
+        if re.search(rf"(?<![A-Za-z0-9]){re.escape(study_id)}(?![A-Za-z0-9])", str(text)):
+            detected.add(study_id)
+    ordered = sorted(detected)
+    return {
+        "detected_citation_tokens": ordered,
+        "known_citation_tokens": sorted(detected & known),
+        "unknown_citation_tokens": sorted(detected - known),
+    }
+
+
 def _extract_study_citations(text: str, known_ids: set[str]) -> list[str]:
-    """Find known IDs in prose and bracket citations without topic heuristics."""
-    citations: list[str] = []
-    for study_id in sorted(known_ids, key=len, reverse=True):
-        if re.search(rf"(?<![A-Za-z0-9]){re.escape(study_id)}(?![A-Za-z0-9])", text):
-            citations.append(study_id)
-    return citations
+    """Backward-compatible known-token view of citation detection."""
+    return detect_study_citation_tokens(text, known_ids)["known_citation_tokens"]
 
 
 def _split_section_sentences(text: str) -> list[str]:
@@ -332,6 +403,9 @@ def validate_structured_section_output(
         "claim_count": 0,
         "citation_count": 0,
         "mapped_citation_count": 0,
+        "detected_citation_tokens": [],
+        "known_citation_tokens": [],
+        "unknown_citation_tokens": [],
         "unmapped_citations": [],
         "unmapped_sentences": [],
         "errors": [],
@@ -385,13 +459,19 @@ def validate_structured_section_output(
             elif study_id not in allowed_ids:
                 errors.append(f"claim_{index}_study_not_eligible:{study_id}")
 
-    citations = _extract_study_citations(section_text, allowed_ids | section_ids)
+    citation_tokens = detect_study_citation_tokens(
+        section_text, allowed_ids | section_ids, _section_citation_patterns(section_spec),
+    )
+    metadata.update(citation_tokens)
+    citations = citation_tokens["detected_citation_tokens"]
     metadata["citation_count"] = len(citations)
     unmapped = sorted(set(citations) - claim_ids)
     metadata["unmapped_citations"] = unmapped
-    metadata["mapped_citation_count"] = len(citations) - len(unmapped)
+    metadata["mapped_citation_count"] = len(set(citation_tokens["known_citation_tokens"]) & claim_ids)
     if unmapped:
         errors.append("section_citation_not_in_claim_map")
+    if citation_tokens["unknown_citation_tokens"]:
+        errors.append("unknown_study_citation_in_text")
     if evidence_available and not citations:
         errors.append("evidence_section_has_no_study_citation")
 
@@ -518,7 +598,7 @@ def synthesize_review(
 def build_claim_map(project: ReviewProject, report: str, plan: dict[str, Any] | None = None, structured_sections: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     plan = plan or resolve_synthesis_plan(project)
     valid_studies = set(eligible_study_ids(project))
-    outcomes = [item for item in read_jsonl(project.root / "extraction" / "outcomes.jsonl") if item.get("status", "active") == "active"]
+    outcomes = current_outcomes(project)
     outcomes_by_id = {
         str(outcome["outcome_id"]): outcome
         for outcome in outcomes
@@ -526,16 +606,9 @@ def build_claim_map(project: ReviewProject, report: str, plan: dict[str, Any] | 
     }
     evidence_by_id: dict[str, dict[str, Any]] = {}
     locations = defaultdict(list)
-    for outcome in outcomes:
-        outcome_id_value = str(outcome.get("outcome_id", ""))
-        study_id_value = str(outcome.get("study_id", ""))
-        for ordinal, raw_location in enumerate(outcome.get("evidence", [])):
-            location = dict(raw_location)
-            location["evidence_id"] = evidence_location_id(study_id_value, outcome_id_value, location, ordinal)
-            location["study_id"] = study_id_value
-            location["outcome_id"] = outcome_id_value
-            evidence_by_id[location["evidence_id"]] = location
-            locations[study_id_value].append(location)
+    for location in current_evidence(project):
+        evidence_by_id[str(location["evidence_id"])] = dict(location)
+        locations[str(location["study_id"])].append(dict(location))
     contradiction_payload = project.root / "evidence" / "contradiction_groups.json"
     contradiction_groups = json.loads(contradiction_payload.read_text())["groups"] if contradiction_payload.exists() else []
     claims = []
@@ -694,8 +767,8 @@ def _analyze_claim(
     contradicting_evidence, unresolved_contradicting_evidence = _resolve_evidence_references(contradicting_refs, evidence_by_id)
     required = list(raw.get("required_qualifiers", section_spec.get("required_qualifiers", [])))
     study_rows = {
-        str(item.get("study_id")): item for item in read_jsonl(project.root / "extraction" / "studies.jsonl")
-        if item.get("study_id") and item.get("status", "active") == "active"
+        str(item.get("study_id")): item for item in current_studies(project)
+        if item.get("study_id")
     }
     supporting_rows = [study_rows[sid] for sid in supporting if sid in study_rows]
     scope = str(raw.get("scope_status", raw.get("protocol_scope_status", "unclear")))

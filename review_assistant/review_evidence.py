@@ -12,6 +12,7 @@ from typing import Any
 from .io_utils import atomic_write_text, load_yaml, read_jsonl, write_json
 from .project import ReviewProject
 from .eligibility import resolve_eligible_studies
+from .studies import current_outcomes, current_publications, current_studies
 
 EFFECT_DIRECTIONS = {"increase", "decrease", "no_change", "mixed", "unclear"}
 SUPPORT_RELATIONS = {"supports", "contradicts", "neutral", "mixed", "unclear"}
@@ -50,12 +51,12 @@ class EvidenceMatrixBuilder:
     def build(self, row_mode: str = "study") -> list[dict[str, Any]]:
         if row_mode not in {"study", "study_comparison"}:
             raise ValueError("row_mode must be study or study_comparison")
-        publications = {item["publication_id"]: item for item in _latest(read_jsonl(self.project.root / "extraction" / "publications.jsonl"), "publication_id") if item.get("status", "active") == "active"}
-        studies = _latest(read_jsonl(self.project.root / "extraction" / "studies.jsonl"), "study_id")
+        publications = {item["publication_id"]: item for item in current_publications(self.project) if item.get("publication_id")}
+        studies = current_studies(self.project)
         eligible = set(resolve_eligible_studies(self.project))
         studies = [study for study in studies if study["study_id"] in eligible]
         outcomes_by_study: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for outcome in _latest(read_jsonl(self.project.root / "extraction" / "outcomes.jsonl"), "outcome_id"):
+        for outcome in current_outcomes(self.project):
             outcomes_by_study[outcome["study_id"]].append(outcome)
         columns = list(self.schema.get("matrix", {}).get("columns", []))
         if not columns:
@@ -105,10 +106,10 @@ class ContradictionAnalyzer:
         self.settings = project.extraction_schema.data.get("contradiction_analysis", {})
 
     def analyze(self) -> list[dict[str, Any]]:
-        studies = {item["study_id"]: item for item in _latest(read_jsonl(self.project.root / "extraction" / "studies.jsonl"), "study_id")}
+        studies = {item["study_id"]: item for item in current_studies(self.project)}
         eligible = set(resolve_eligible_studies(self.project))
         studies = {sid: study for sid, study in studies.items() if sid in eligible}
-        outcomes = _latest(read_jsonl(self.project.root / "extraction" / "outcomes.jsonl"), "outcome_id")
+        outcomes = current_outcomes(self.project)
         outcomes = [outcome for outcome in outcomes if outcome.get("study_id") in eligible]
         dimensions = list(self.settings.get("claim_dimensions", ["outcome.domain"]))
         moderators = list(self.settings.get("moderator_candidates", []))

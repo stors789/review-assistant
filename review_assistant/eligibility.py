@@ -11,6 +11,7 @@ from .io_utils import read_jsonl, write_json
 from .project import ReviewProject
 from .screening import latest_screening_decisions as _latest_screening_decisions
 from .screening import resolve_screening_completeness
+from .studies import current_studies
 
 ENFORCEMENT_LEVELS = {"required", "optional", "disabled"}
 FULLTEXT_REQUIREMENTS = {"required", "structured_extraction_allowed", "disabled"}
@@ -111,7 +112,7 @@ def resolve_fulltext_status(project: ReviewProject) -> dict[str, Any]:
         study_id_value = str(link.get("study_id", ""))
         if study_id_value:
             latest_links[study_id_value] = link
-    study_ids = {str(item.get("study_id")) for item in read_jsonl(project.root / "extraction" / "studies.jsonl") if item.get("study_id")}
+    study_ids = {str(item.get("study_id")) for item in current_studies(project) if item.get("study_id")}
     structured_available = {
         str(link.get("record_id")) for study_id_value, link in latest_links.items()
         if study_id_value in study_ids and link.get("record_id") and str(link.get("record_id")) in included
@@ -150,8 +151,8 @@ def resolve_eligibility(project: ReviewProject) -> EligibilityResult:
     completeness = resolve_screening_completeness(project)
     studies = {
         str(item["study_id"]): item
-        for item in read_jsonl(project.root / "extraction" / "studies.jsonl")
-        if item.get("study_id") and item.get("status", "active") == "active"
+        for item in current_studies(project)
+        if item.get("study_id")
     }
     latest_links: dict[str, dict[str, Any]] = {}
     for link in read_jsonl(project.root / "extraction" / "study_record_links.jsonl"):
